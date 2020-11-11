@@ -20,10 +20,12 @@ enclave {
     from "sgx_stdio.edl" import *;
     from "sgx_backtrace.edl" import *;
     from "sgx_tstdc.edl" import *;
+    from "sgx_process.edl" import *;
+    from "sgx_env.edl" import *;
     include "../ocall_types.h" // Need to import some type declartions from stdlib
 
     trusted {
-        public sgx_status_t ecall_opendb(void); // open SQLite connection to dbname
+        public sgx_status_t ecall_opendb([in, string] const char *dbname); // open SQLite connection to dbname
         public sgx_status_t ecall_execute_sql([in, string] const char *sql); // Execute SQL statement inside enclave
         public sgx_status_t ecall_closedb(void); // close SQLite db connection
      };

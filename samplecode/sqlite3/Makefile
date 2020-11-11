@@ -36,7 +36,7 @@ ifeq ($(SGX_ARCH), x86)
 	SGX_ENCLAVE_SIGNER := $(SGX_SDK)/bin/x86/sgx_sign
 	SGX_EDGER8R := $(SGX_SDK)/bin/x86/sgx_edger8r
 else
-	SGX_COMMON_CFLAGS := -m64
+	SGX_COMMON_CFLAGS := -m64 -ggdb
 	SGX_LIBRARY_PATH := $(SGX_SDK)/lib64
 	SGX_ENCLAVE_SIGNER := $(SGX_SDK)/bin/x64/sgx_sign
 	SGX_EDGER8R := $(SGX_SDK)/bin/x64/sgx_edger8r
@@ -69,26 +69,15 @@ Enclave_EDL_Files := enclave/Enclave_t.c enclave/Enclave_t.h app/Enclave_u.c app
 
 ######## APP Settings ########
 
-ifneq ($(SGX_MODE), HW)
-	Urts_Library_Name := sgx_urts_sim
-else
-	Urts_Library_Name := sgx_urts
-endif
+# App_Rust_Flags := --ggdb	
+App_Rust_Flags :=
+App_SRC_Files := $(shell find app/ -type f -name '*.rs') $(shell find app/ -type f -name 'Cargo.toml')
 
-App_C_Files := $(filter-out ./app/Enclave_u.c, $(wildcard ./app/*.c))
 App_Include_Paths := -I ./app -I./include -I$(SGX_SDK)/include -I$(CUSTOM_EDL_PATH)
 App_C_Flags := $(SGX_COMMON_CFLAGS) -fPIC -Wno-attributes $(App_Include_Paths)
-App_Cpp_Flags := $(App_C_Flags) -std=c++11
-App_Link_Flags := -L$(SGX_LIBRARY_PATH) -L$(CUSTOM_LIBRARY_PATH) -l$(Urts_Library_Name) -lpthread -lsgx_uprotected_fs
-ifneq ($(SGX_MODE), HW)
-	App_Link_Flags += -lsgx_uae_service_sim
-else
-	App_Link_Flags += -lsgx_uae_service
-endif
 
-App_Link_Flags += -lsgx_ustdc
-
-App_C_Objects := $(App_C_Files:.c=.o)
+App_Rust_Path := ./app/target/debug
+App_Enclave_u_Object :=lib/libEnclave_u.a
 
 App_Name := bin/app
 
@@ -107,8 +96,7 @@ ProtectedFs_Library_Name := sgx_tprotected_fs
 
 RustEnclave_C_Files := $(wildcard ./enclave/*.c)
 RustEnclave_C_Objects := $(RustEnclave_C_Files:.c=.o)
-RustEnclave_Include_Paths := -I ./enclave/include -I$(CUSTOM_COMMON_PATH)/inc -I$(CUSTOM_EDL_PATH) -I$(SGX_SDK)/include -I$(SGX_SDK)/include/tlibc -I$(SGX_SDK)/include/stlport -I$(SGX_SDK)/include/epid -I ./enclave
-
+RustEnclave_Include_Paths := -I ./enclave/include -I ./enclave -I$(CUSTOM_COMMON_PATH)/inc -I$(CUSTOM_EDL_PATH) -I$(SGX_SDK)/include -I$(SGX_SDK)/include/tlibc -I$(SGX_SDK)/include/stlport -I$(SGX_SDK)/include/epid -I ./enclave -I./include 
 RustEnclave_Link_Libs := -L$(CUSTOM_LIBRARY_PATH) -lenclave
 RustEnclave_Compile_Flags := $(SGX_COMMON_CFLAGS) $(ENCLAVE_CFLAGS) $(RustEnclave_Include_Paths)
 RustEnclave_Link_Flags := -Wl,--no-undefined -nostdlib -nodefaultlibs -nostartfiles -L$(SGX_LIBRARY_PATH) \
@@ -121,7 +109,7 @@ RustEnclave_Name := enclave/enclave.so
 Signed_RustEnclave_Name := bin/enclave.signed.so
 
 .PHONY: all
-all: $(Enclave_EDL_Files) $(App_Name) $(Signed_RustEnclave_Name)
+all: $(App_Name) $(Signed_RustEnclave_Name)
 
 ######## EDL Objects ########
 
@@ -132,43 +120,33 @@ $(Enclave_EDL_Files): $(SGX_EDGER8R) enclave/Enclave.edl
 
 ######## App Objects ########
 
-app/Enclave_u.o: app/Enclave_u.c
-	@$(CC) $(App_C_Flags) -c $< -o $@
+app/Enclave_u.o: $(Enclave_EDL_Files)
+	@$(CC) $(App_C_Flags) -c app/Enclave_u.c -o $@
 	@echo "CC   <=  $<"
 
-# Compile ocalls
-app/ocalls.o: app/ocalls.c
-	@$(CC) $(App_C_Flags) -c $< -o $@
-	@echo "CC   <=  $<"
+$(App_Enclave_u_Object): app/Enclave_u.o
+	$(AR) rcsD $@ $^
 
-app/appcpp.o: app/appcpp.cpp
-	@$(CXX) $(App_Cpp_Flags) -c $< -o $@ 
-	@echo "CXX  <=  $<"
-
-app/%.o: app/%.c
-	@$(CXX) $(App_C_Flags) -c $< -o $@
-	@echo "CXX  <=  $<"
-
-$(App_Name): app/Enclave_u.o app/appcpp.o $(App_C_Objects) sgx_ustdc
-	cp ../../sgx_ustdc/libsgx_ustdc.a ./lib
+$(App_Name): $(App_Enclave_u_Object) $(App_SRC_Files)
+	@cd app && SGX_SDK=$(SGX_SDK) SGX_MODE=$(SGX_MODE) cargo build $(App_Rust_Flags)
+	@echo "Cargo  =>  $@"
 	mkdir -p bin
-	@$(CXX) app/Enclave_u.o app/appcpp.o $(App_C_Objects) -o $@ $(App_Link_Flags)
-	@echo "LINK =>  $@"
+	cp $(App_Rust_Path)/app ./bin
 
 ######## Enclave Objects ########
 
-enclave/Enclave_t.o: enclave/Enclave_t.c
-	@$(CC) $(RustEnclave_Compile_Flags) -c $< -o $@
+enclave/Enclave_t.o: $(Enclave_EDL_Files)
+	@$(CC) $(RustEnclave_Compile_Flags) -c enclave/Enclave_t.c -o $@
 	@echo "CC   <=  $<"
 
 # Preprocess sqlite3
 enclave/sqlite3.i: enclave/sqlite3.c
-	$(CC) -I$(SGX_SDK)/include -DSQLITE_THREADSAFE=0 -DSQLITE_USE_URI=1 -DSQLITE_ENABLE_DESERIALIZE -DSGX -E $< -o $@
+	$(CC) -I$(SGX_SDK)/include -DHAVE_FCHOWN=0 -DSQLITE_THREADSAFE=0 -DSQLITE_USE_URI=1 -DSQLITE_ENABLE_DESERIALIZE -DSGX -E $< -o $@
 	@echo "CC-Preprocess  <=  $<"
 
 # Compile sqlite3
 enclave/sqlite3.o: enclave/sqlite3.i enclave/sqlite3.c
-	$(CC) $(RustEnclave_Compile_Flags) -DSQLITE_THREADSAFE=0 -DSQLITE_USE_URI=1 -DSQLITE_ENABLE_DESERIALIZE -DSGX -c $< -o $@
+	$(CC) $(RustEnclave_Compile_Flags) -DHAVE_FCHOWN=0 -DSQLITE_THREADSAFE=0 -DSQLITE_USE_URI=1 -DSQLITE_ENABLE_DESERIALIZE -DSGX -c $< -o $@
 	@echo "CC  <=  $<"
 
 # Preprocess ocall_interface to redirect syscall
@@ -194,17 +172,14 @@ $(Signed_RustEnclave_Name): $(RustEnclave_Name)
 enclave:
 	$(MAKE) -C ./enclave/
 
-
-.PHONY: sgx_ustdc
-sgx_ustdc:
-	$(MAKE) -C ../../sgx_ustdc/ 2> /dev/null
-
 .PHONY: clean
 clean:
-	@rm -f $(App_Name) $(RustEnclave_Name) $(Signed_RustEnclave_Name) $(RustEnclave_C_Objects) $(App_C_Objects) enclave/*_t.* app/*_u.* lib/*.a enclave/*.i
+	@rm -f $(App_Name) $(RustEnclave_Name) $(Signed_RustEnclave_Name) enclave/*_t.* app/*_u.* lib/*.a enclave/*.i
 	@cd enclave && cargo clean && rm -f Cargo.lock
+	@cd app && cargo clean && rm -f Cargo.lock
 
 .PHONY: clean-except-cargo
 clean-except-cargo:
-	@rm -f $(App_Name) $(RustEnclave_Name) $(Signed_RustEnclave_Name) $(RustEnclave_C_Objects) $(App_C_Objects) enclave/*_t.* app/*_u.* lib/*.a enclave/*.i
+	@rm -f $(App_Name) $(RustEnclave_Name) $(Signed_RustEnclave_Name) enclave/*_t.* app/*_u.* lib/*.a enclave/*.i
+	@cd app && cargo clean && rm -f Cargo.lock	
 
