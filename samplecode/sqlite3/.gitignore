@@ -8,3 +8,5 @@ enclave/vendor
 #compiled binaries
 bin/
 lib/
+
+.DS_Store

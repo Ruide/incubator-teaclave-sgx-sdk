@@ -24,20 +24,46 @@ long int sysconf(int name){
   return 0;
 }
 
-// replace by sgx_file::u_open64_ocall
+// replace by sgx_file::u_open64_ocall, maybe sgx_fopen_auto_key
 int open64(const char *filename, int flags, ...){
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  return 0;
+  ocall_print_string("Entering open64() \n");
+
+  mode_t mode = 0; // file permission bitmask
+
+  // Get the mode_t from arguments
+	if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE) {
+		va_list valist;
+		va_start(valist, flags);
+		mode = va_arg(valist, mode_t);
+		va_end(valist);
+	}
+
+  int ret;
+  int err;
+
+  // sgx_status_t status = ocall_open64(&ret, filename, flags, mode);
+  sgx_status_t status = u_open64_ocall(&ret, &err, filename, flags, mode);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
+  return ret;
+  
 }
 
-// replace by sgx_file::u_lseek_ocall
+// replace by sgx_file::u_lseek_ocall, maybe sgx_fseek
 off_t lseek64(int fd, off_t offset, int whence){
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  return 0;
+    off_t ret;
+    int err;
+    
+    sgx_status_t status = u_lseek64_ocall(&ret, &err, fd, offset, whence);
+    if (status != SGX_SUCCESS || err != 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+        ocall_print_error(error_msg);
+    }
+    return ret;
 }
 
 // since timezone is a "input" here, and it's "untrusted" (we don't make the
@@ -109,22 +135,28 @@ struct tm *localtime(const time_t *timep){
 }
 
 pid_t getpid(void){
-  pid_t ret = 0;
-  
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  
+  int ret;
+  sgx_status_t status = u_getpid_ocall(&ret);
+  if (status != SGX_SUCCESS) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
   return ret;
 }
 
+// fsync ask os to flush a file descriptor to disk. should be safe to directly relay.
 int fsync(int fd){
-  int ret = 0;
+  ocall_print_string("Entering fsync() \n");
   
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  
+  int ret;
+  int err;
+  sgx_status_t status = u_fsync_ocall(&ret, &err, fd);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
   return ret;
 }
 
@@ -141,14 +173,18 @@ time_t time(time_t *t){
   return ret;
 }
 
-// replace with u_close_ocall
+// replace with u_close_ocall, maybe sgx_fclose
 int close(int fd){
-  int ret = 0;
-  
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  
+  ocall_print_string("Entering close() \n");
+
+  int ret;
+  int err;
+  sgx_status_t status = u_close_ocall(&ret, &err, fd);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
   return ret;
 }
 
@@ -165,55 +201,73 @@ int access(const char *pathname, int mode){
 
 // replace with u_getcwd_ocall
 char *getcwd(char *buf, size_t size){
-  char* ret = NULL;
+  ocall_print_string("Entering getcwd() \n");
 
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-
-  return ret;
-}
-
-int sgx_lstat( const char* path, struct stat *buf ) {
-  int ret = 0;
-  
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  
+  char* ret;
+  int err;
+  sgx_status_t status = u_getcwd_ocall(&ret, &err, buf, size);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
   return ret;
 }
 
 // u_lstat_ocall or u_lstat64_ocall
+int sgx_lstat( const char* path, struct stat *buf ) {
+  ocall_print_string("Entering sgx_lstat() \n");
+
+  int ret;
+  int err;
+  sgx_status_t status = u_lstat_ocall(&ret, &err, path, buf);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
+  return ret;
+}
+
 int sgx_stat(const char *path, struct stat *buf){
-  int ret = 0;
+  ocall_print_string("Entering sgx_stat() \n");
   
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  
+  int ret;
+  int err;
+  sgx_status_t status = u_stat_ocall(&ret, &err, path, buf);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
   return ret;
 }
 
 // u_fstat_ocall or u_fstat64_ocall
 int sgx_fstat(int fd, struct stat *buf){
-  int ret = 0;
-  
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  
+  ocall_print_string("Entering sgx_fstat() \n");
+
+  int ret;
+  int err;
+  sgx_status_t status = u_fstat_ocall(&ret, &err, fd, buf);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
   return ret;
 }
 
 // u_ftruncate_ocall or u_ftruncate_64
 int sgx_ftruncate(int fd, off_t length){
-  int ret = 0;
-
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  
+  int ret;
+  int err;
+  sgx_status_t status = u_ftruncate_ocall(&ret, &err, fd, length);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
   return ret;
 }
 
@@ -222,54 +276,81 @@ int sgx_ftruncate(int fd, off_t length){
 // if fd + cmd + arg1, use u_fcntl_arg1_ocall
 // grep osFcntl in sqlite3.c can get all call sites
 int fcntl(int fd, int cmd, ... /* arg */ ){
-  int ret = 0;
+  ocall_print_string("Entering fcntl() \n");
 
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
+  // Read one argument
+  va_list valist;
+	va_start(valist, cmd);
+	void* arg = va_arg(valist, void*);
+	va_end(valist);
 
+  sgx_status_t status;
+  int ret;
+  int err;
+  if (arg == NULL){
+    status = u_fcntl_arg0_ocall(&ret, &err, fd, cmd);
+  } else {
+    status = u_fcntl_arg1_ocall(&ret, &err, fd, cmd, arg); 
+  }
+
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
   return ret;
 }
 
-// u_read_ocall
+// u_read_ocall, maybe sgx_fread
 ssize_t read(int fd, void *buf, size_t count){
-  ssize_t ret = 0;
-
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-
-  return ret;
+  int ret;
+  int err;
+  sgx_status_t status = u_read_ocall(&ret, &err, fd, buf, count);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
+  return (ssize_t)ret;
 }
 
-// u_write_ocall
+// u_write_ocall, maybe sgx_fwrite
 ssize_t write(int fd, const void *buf, size_t count){
-  ssize_t ret = 0;
-
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-
-  return ret;
+  int ret;
+  int err;
+  sgx_status_t status = u_write_ocall(&ret, &err, fd, buf, count);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
+  return (ssize_t)ret;
 }
 
 // u_fchmod_ocall
 int fchmod(int fd, mode_t mode){
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  return 0;
+  int ret;
+  int err;
+  sgx_status_t status = u_fchmod_ocall(&ret, &err, fd, mode);
+  if (status != SGX_SUCCESS || err != 0) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
+  return (ssize_t)ret;
 }
 
 // u_unlink_ocall
 int unlink(const char *pathname){
-  int ret = 0;
-
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-  
-  return ret;
+    int ret;
+    int err;
+    sgx_status_t status = u_unlink_ocall(&ret, &err, pathname);
+    if (status != SGX_SUCCESS || err != 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+        ocall_print_error(error_msg);
+    }
+    return ret;
 }
 
 // u_mkdir_ocall
@@ -314,11 +395,14 @@ uid_t geteuid(void){
 // 3. make it configurable in some initializers which exposes rust API
 char* getenv(const char *name){
   char* ret = NULL;
-
-  char error_msg[256];
-  snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
-  ocall_print_error(error_msg);
-
+  sgx_status_t status = u_getenv_ocall(&ret, name);
+  ocall_print_string("getenv called. name is: ");
+  ocall_print_string(name);
+  if (status != SGX_SUCCESS) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
   return ret;
 }
 
