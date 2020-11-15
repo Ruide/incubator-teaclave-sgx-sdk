@@ -19,6 +19,7 @@ extern crate sgx_types;
 extern crate sgx_urts;
 use sgx_types::*;
 use sgx_urts::SgxEnclave;
+use std::io::{self, Write};
 
 static ENCLAVE_FILE: &'static str = "enclave.signed.so";
 
@@ -61,6 +62,13 @@ fn init_enclave() -> SgxResult<SgxEnclave> {
 }
 
 fn main() {
+    if std::env::args().count() != 2 {
+        print!("Usage: ");
+        println!("{} [database file]", std::env::args().nth(0).unwrap());
+        println!("Note: put :memory: in [database file] for in-memory database");
+        return;
+    }
+
     let enclave = match init_enclave() {
         Ok(r) => {
             println!("[+] Init Enclave Successful {}!", r.geteid());
@@ -72,20 +80,62 @@ fn main() {
         },
     };
 
-    let input_string = String::from("test.db");
+    println!("[+] Info: SQLite SGX enclave successfully created.");
+
+    let database_name = std::env::args().nth(1).unwrap();
     let mut retval = sgx_status_t::SGX_SUCCESS;
 
     let result = unsafe {
-        ecall_opendb(enclave.geteid(), &mut retval, input_string.as_ptr() as * const i8)
+        // Open SQLite database
+        ecall_opendb(enclave.geteid(), &mut retval, database_name.as_ptr() as * const i8)
     };
     match result {
-        sgx_status_t::SGX_SUCCESS => {},
+        sgx_status_t::SGX_SUCCESS => {
+            println!("[+] Info: SQLite SGX DB successfully opened.");
+            println!("[+] Info: Enter SQL statement to execute or 'quit' or Ctrl + d to exit:");
+        },
         _ => {
-            println!("[-] ECALL Enclave Failed {}!", result.as_str());
+            println!("[-] ECALL Open DB Failed {}!", result.as_str());
             return;
         }
     }
 
+    loop {
+        print!("> ");
+        let _ = io::stdout().flush();
+    
+        let mut input = String::new();
+        match io::stdin().read_line(&mut input) {
+            Ok(n) => {
+                // for Ctrl-D EOF case
+                if n == 0 {
+                    break
+                }
+
+                if input == "quit\n" {
+                    break
+                }
+
+                let result = unsafe {
+                    ecall_execute_sql(enclave.geteid(), &mut retval, input.as_ptr() as * const i8)
+                };
+
+                match result {
+                    sgx_status_t::SGX_SUCCESS => {},
+                    _ => {
+                        println!("[-] ECALL Execute SQL Failed {}!", result.as_str());
+                        return;
+                    }
+                }
+            }
+            Err(error) => {
+                println!("error: {}", error);
+                break;
+            }
+        }    
+    }
+
+    // Closing SQLite database inside enclave
     let result = unsafe {
         ecall_closedb(enclave.geteid(), &mut retval)
     };
@@ -97,5 +147,7 @@ fn main() {
         }
     }
 
+    /* Destroy the enclave */
     enclave.destroy();
+    println!("[+] Info: SQLite SGX DB successfully closed.");
 }

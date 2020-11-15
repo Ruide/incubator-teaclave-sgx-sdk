@@ -76,7 +76,7 @@ App_SRC_Files := $(shell find app/ -type f -name '*.rs') $(shell find app/ -type
 App_Include_Paths := -I ./app -I./include -I$(SGX_SDK)/include -I$(CUSTOM_EDL_PATH)
 App_C_Flags := $(SGX_COMMON_CFLAGS) -fPIC -Wno-attributes $(App_Include_Paths)
 
-App_Rust_Path := ./app/target/debug
+App_Rust_Path := ./target/debug
 App_Enclave_u_Object :=lib/libEnclave_u.a
 
 App_Name := bin/app
@@ -128,7 +128,7 @@ $(App_Enclave_u_Object): app/Enclave_u.o
 	$(AR) rcsD $@ $^
 
 $(App_Name): $(App_Enclave_u_Object) $(App_SRC_Files)
-	@cd app && SGX_SDK=$(SGX_SDK) SGX_MODE=$(SGX_MODE) cargo build $(App_Rust_Flags)
+	@cd app && SGX_SDK=$(SGX_SDK) cargo build $(App_Rust_Flags)
 	@echo "Cargo  =>  $@"
 	mkdir -p bin
 	cp $(App_Rust_Path)/app ./bin

@@ -123,10 +123,13 @@ pub extern "C" fn u_stat64_ocall(
 #[no_mangle]
 pub extern "C" fn u_lstat_ocall(error: *mut c_int, path: *const c_char, buf: *mut stat) -> c_int {
     let mut errno = 0;
-    println!("{:?}",path);
-    println!("{:?}",buf);
-    println!("entering u_lstat_ocall...");
-    eprintln!("{:?}",path);
+    // use std::ffi::CStr;
+    // unsafe {
+    //     let slice = CStr::from_ptr(path);
+    //     println!("path is : {}", slice.to_str().unwrap());
+    // }
+    // println!("{:?}",buf);
+    // println!("entering u_lstat_ocall...");
     let ret = unsafe { libc::lstat(path, buf) };
     if ret < 0 {
         errno = Error::last_os_error().raw_os_error().unwrap_or(0);
@@ -136,6 +139,7 @@ pub extern "C" fn u_lstat_ocall(error: *mut c_int, path: *const c_char, buf: *mu
             *error = errno;
         }
     }
+    // println!("error code is: {}", errno);
     ret
 }
 
