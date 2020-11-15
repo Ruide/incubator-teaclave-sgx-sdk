@@ -11,6 +11,7 @@
             "program": "${workspaceFolder}/bin/app",
             "args": ["test.db"],
             "cwd": "${workspaceFolder}/bin",
+            "miDebuggerPath": "/opt/sgxsdk/bin/sgx-gdb",
             "additionalSOLibSearchPath": "/opt/sgxsdk/lib64"
         }
     ]

@@ -43,7 +43,7 @@ int open64(const char *filename, int flags, ...){
 
   // sgx_status_t status = ocall_open64(&ret, filename, flags, mode);
   sgx_status_t status = u_open64_ocall(&ret, &err, filename, flags, mode);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -58,7 +58,7 @@ off_t lseek64(int fd, off_t offset, int whence){
     int err;
     
     sgx_status_t status = u_lseek64_ocall(&ret, &err, fd, offset, whence);
-    if (status != SGX_SUCCESS || err != 0) {
+    if (status != SGX_SUCCESS) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
         ocall_print_error(error_msg);
@@ -152,7 +152,7 @@ int fsync(int fd){
   int ret;
   int err;
   sgx_status_t status = u_fsync_ocall(&ret, &err, fd);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -180,7 +180,7 @@ int close(int fd){
   int ret;
   int err;
   sgx_status_t status = u_close_ocall(&ret, &err, fd);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -206,7 +206,7 @@ char *getcwd(char *buf, size_t size){
   char* ret;
   int err;
   sgx_status_t status = u_getcwd_ocall(&ret, &err, buf, size);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -221,7 +221,7 @@ int sgx_lstat( const char* path, struct stat *buf ) {
   int ret;
   int err;
   sgx_status_t status = u_lstat_ocall(&ret, &err, path, buf);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -235,7 +235,7 @@ int sgx_stat(const char *path, struct stat *buf){
   int ret;
   int err;
   sgx_status_t status = u_stat_ocall(&ret, &err, path, buf);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -250,7 +250,7 @@ int sgx_fstat(int fd, struct stat *buf){
   int ret;
   int err;
   sgx_status_t status = u_fstat_ocall(&ret, &err, fd, buf);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -263,7 +263,7 @@ int sgx_ftruncate(int fd, off_t length){
   int ret;
   int err;
   sgx_status_t status = u_ftruncate_ocall(&ret, &err, fd, length);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -293,7 +293,7 @@ int fcntl(int fd, int cmd, ... /* arg */ ){
     status = u_fcntl_arg1_ocall(&ret, &err, fd, cmd, arg); 
   }
 
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -306,7 +306,7 @@ ssize_t read(int fd, void *buf, size_t count){
   int ret;
   int err;
   sgx_status_t status = u_read_ocall(&ret, &err, fd, buf, count);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -319,7 +319,7 @@ ssize_t write(int fd, const void *buf, size_t count){
   int ret;
   int err;
   sgx_status_t status = u_write_ocall(&ret, &err, fd, buf, count);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -332,7 +332,7 @@ int fchmod(int fd, mode_t mode){
   int ret;
   int err;
   sgx_status_t status = u_fchmod_ocall(&ret, &err, fd, mode);
-  if (status != SGX_SUCCESS || err != 0) {
+  if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
@@ -345,7 +345,7 @@ int unlink(const char *pathname){
     int ret;
     int err;
     sgx_status_t status = u_unlink_ocall(&ret, &err, pathname);
-    if (status != SGX_SUCCESS || err != 0) {
+    if (status != SGX_SUCCESS) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
         ocall_print_error(error_msg);
