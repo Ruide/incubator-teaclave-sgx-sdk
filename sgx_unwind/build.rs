@@ -22,7 +22,8 @@ use std::process::Command;
 use build_helper::{run, native_lib_boilerplate};
 
 fn main() {
-    println!("cargo:rerun-if-changed=build.rs");
+    // temporary changed from build.rs to Cargo.lock to avoid rebuild
+    println!("cargo:rerun-if-changed=Cargo.lock");
     let target = env::var("TARGET").expect("TARGET was not set");
     let host = env::var("HOST").expect("HOST was not set");
 
