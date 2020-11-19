@@ -142,12 +142,12 @@ enclave/Enclave_t.o: $(Enclave_EDL_Files)
 
 # Preprocess sqlite3
 enclave/sqlite3.i: enclave/sqlite3.c
-	$(CC) -I$(SGX_SDK)/include -DHAVE_FCHOWN=0 -DSQLITE_THREADSAFE=0 -DSQLITE_USE_URI=1 -DSQLITE_ENABLE_DESERIALIZE -DSGX -E $< -o $@
+	$(CC) -I$(SGX_SDK)/include -DSQLITE_THREADSAFE=0 -DSQLITE_USE_URI=1 -DSQLITE_ENABLE_DESERIALIZE -DSGX -E $< -o $@
 	@echo "CC-Preprocess  <=  $<"
 
 # Compile sqlite3
 enclave/sqlite3.o: enclave/sqlite3.i enclave/sqlite3.c
-	$(CC) $(RustEnclave_Compile_Flags) -DHAVE_FCHOWN=0 -DSQLITE_THREADSAFE=0 -DSQLITE_USE_URI=1 -DSQLITE_ENABLE_DESERIALIZE -DSGX -c $< -o $@
+	$(CC) $(RustEnclave_Compile_Flags) -DSQLITE_THREADSAFE=0 -DSQLITE_USE_URI=1 -DSQLITE_ENABLE_DESERIALIZE -DSGX -c $< -o $@
 	@echo "CC  <=  $<"
 
 # Preprocess ocall_interface to redirect syscall
@@ -182,5 +182,5 @@ clean:
 .PHONY: clean-except-cargo
 clean-except-cargo:
 	@rm -f $(App_Name) $(RustEnclave_Name) $(Signed_RustEnclave_Name) enclave/*_t.* app/*_u.* lib/*.a enclave/*.i
-	@cd app && cargo clean && rm -f Cargo.lock	
+	# @cd app && cargo clean && rm -f Cargo.lock	
 
