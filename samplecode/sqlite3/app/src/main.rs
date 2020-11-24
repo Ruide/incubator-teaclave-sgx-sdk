@@ -112,6 +112,10 @@ fn main() {
                     break
                 }
 
+                if input == "\n" {
+                    continue
+                }
+
                 if input == "quit\n" {
                     break
                 }

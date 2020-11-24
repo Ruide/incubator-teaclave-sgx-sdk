@@ -27,6 +27,11 @@ void set_errno(int e){
 // The only call to sysconf is sysconf(_SC_PAGESIZE)
 // hard code the value here
 long int sysconf(int name){
+   #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with name %d\n", __func__, name);
+  ocall_print_string(msg);
+  #endif 
   char error_msg[256];
   snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: no ocall implementation for ", __func__);
   ocall_print_error(error_msg);
@@ -35,8 +40,11 @@ long int sysconf(int name){
 
 // replace by sgx_file::u_open64_ocall, maybe sgx_fopen_auto_key
 int open64(const char *filename, int flags, ...){
-  ocall_print_string("Entering open64() \n");
-
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with filename %s; flags %d\n", __func__, filename, flags);
+  ocall_print_string(msg);
+  #endif
   mode_t mode = 0; // file permission bitmask
 
   // Get the mode_t from arguments
@@ -57,8 +65,7 @@ int open64(const char *filename, int flags, ...){
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
     ocall_print_error(error_msg);
     set_errno(ESGX);
-    ret = -1;
-    return ret;
+    return -1;
   }
   if (ret == -1) {
     set_errno(err);
@@ -69,16 +76,21 @@ int open64(const char *filename, int flags, ...){
 
 // replace by sgx_file::u_lseek_ocall, maybe sgx_fseek
 off_t lseek64(int fd, off_t offset, int whence){
-    off_t ret;
-    int err;
-    
-    sgx_status_t status = u_lseek64_ocall(&ret, &err, fd, offset, whence);
-    if (status != SGX_SUCCESS) {
-        char error_msg[256];
-        snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-        ocall_print_error(error_msg);
-    }
-    return ret;
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d; offset %d; whence %d\n", __func__, fd, offset, whence);
+  ocall_print_string(msg);
+  #endif
+  off_t ret;
+  int err;
+  
+  sgx_status_t status = u_lseek64_ocall(&ret, &err, fd, offset, whence);
+  if (status != SGX_SUCCESS) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
+  return ret;
 }
 
 // since timezone is a "input" here, and it's "untrusted" (we don't make the
@@ -150,6 +162,11 @@ struct tm *localtime(const time_t *timep){
 }
 
 pid_t getpid(void){
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s\n", __func__);
+  ocall_print_string(msg);
+  #endif
   int ret;
   sgx_status_t status = u_getpid_ocall(&ret);
   if (status != SGX_SUCCESS) {
@@ -162,8 +179,11 @@ pid_t getpid(void){
 
 // fsync ask os to flush a file descriptor to disk. should be safe to directly relay.
 int fsync(int fd){
-  ocall_print_string("Entering fsync() \n");
-  
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d\n", __func__, fd);
+  ocall_print_string(msg);
+  #endif  
   int ret;
   int err;
   sgx_status_t status = u_fsync_ocall(&ret, &err, fd);
@@ -172,8 +192,7 @@ int fsync(int fd){
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
     ocall_print_error(error_msg);
     set_errno(ESGX);
-    ret = -1;
-    return ret;
+    return -1;
   }
   if (ret == -1) {
     set_errno(err);
@@ -196,8 +215,11 @@ time_t time(time_t *t){
 
 // replace with u_close_ocall, maybe sgx_fclose
 int close(int fd){
-  ocall_print_string("Entering close() \n");
-
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d\n", __func__, fd);
+  ocall_print_string(msg);
+  #endif
   int ret;
   int err;
   sgx_status_t status = u_close_ocall(&ret, &err, fd);
@@ -206,8 +228,7 @@ int close(int fd){
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
     ocall_print_error(error_msg);
     set_errno(ESGX);
-    ret = -1;
-    return ret;
+    return -1;
   }
   if (ret == -1) {
     set_errno(err);
@@ -217,6 +238,11 @@ int close(int fd){
 
 // needs further discussion on access
 int access(const char *pathname, int mode){
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with pathname %s; mode %d\n", __func__, pathname, mode);
+  ocall_print_string(msg);
+  #endif
   int ret = 0;
   
   char error_msg[256];
@@ -228,8 +254,11 @@ int access(const char *pathname, int mode){
 
 // replace with u_getcwd_ocall
 char *getcwd(char *buf, size_t size){
-  ocall_print_string("Entering getcwd() \n");
-
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s\n", __func__);
+  ocall_print_string(msg);
+  #endif
   char* ret;
   int err;
   sgx_status_t status = u_getcwd_ocall(&ret, &err, buf, size);
@@ -238,8 +267,7 @@ char *getcwd(char *buf, size_t size){
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
     ocall_print_error(error_msg);
     set_errno(ESGX);
-    ret = -1;
-    return ret;
+    return -1;
   }
   if (ret == -1) {
     set_errno(err);
@@ -249,7 +277,11 @@ char *getcwd(char *buf, size_t size){
 
 // u_lstat_ocall or u_lstat64_ocall
 int sgx_lstat( const char* path, struct stat *buf ) {
-  ocall_print_string("Entering sgx_lstat() \n");
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with path %s\n", __func__, path);
+  ocall_print_string(msg);
+  #endif
   int ret;
   int err;
   sgx_status_t status = u_lstat_ocall(&ret, &err, path, buf);
@@ -258,8 +290,7 @@ int sgx_lstat( const char* path, struct stat *buf ) {
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
     ocall_print_error(error_msg);
     set_errno(ESGX);
-    ret = -1;
-    return ret;
+    return -1;
   }
   if (ret == -1) {
     set_errno(err);
@@ -272,7 +303,11 @@ int sgx_lstat( const char* path, struct stat *buf ) {
 }
 
 int sgx_stat(const char *path, struct stat *buf){
-  ocall_print_string("Entering sgx_stat() \n");
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with path %s\n", __func__, path);
+  ocall_print_string(msg);
+  #endif
   int ret;
   int err;
   sgx_status_t status = u_stat_ocall(&ret, &err, path, buf);
@@ -281,8 +316,7 @@ int sgx_stat(const char *path, struct stat *buf){
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
     ocall_print_error(error_msg);
     set_errno(ESGX);
-    ret = -1;
-    return ret;
+    return -1;
   }
   if (ret == -1) {
     set_errno(err);
@@ -292,7 +326,11 @@ int sgx_stat(const char *path, struct stat *buf){
 
 // u_fstat_ocall or u_fstat64_ocall
 int sgx_fstat(int fd, struct stat *buf){
-  ocall_print_string("Entering sgx_fstat() \n");
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d\n", __func__, fd);
+  ocall_print_string(msg);
+  #endif
 
   int ret;
   int err;
@@ -302,8 +340,7 @@ int sgx_fstat(int fd, struct stat *buf){
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
     ocall_print_error(error_msg);
     set_errno(ESGX);
-    ret = -1;
-    return ret;
+    return -1;
   }
   if (ret == -1) {
     set_errno(err);
@@ -321,8 +358,7 @@ int sgx_ftruncate(int fd, off_t length){
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
     ocall_print_error(error_msg);
     set_errno(ESGX);
-    ret = -1;
-    return ret;
+    return -1;
   }
   if (ret == -1) {
     set_errno(err);
@@ -335,39 +371,49 @@ int sgx_ftruncate(int fd, off_t length){
 // if fd + cmd + arg1, use u_fcntl_arg1_ocall
 // grep osFcntl in sqlite3.c can get all call sites
 int fcntl(int fd, int cmd, ... /* arg */ ){
-  ocall_print_string("Entering fcntl() \n");
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d; cmd %d\n", __func__, fd, cmd);
+  ocall_print_string(msg);
+  #endif
+
+  // fcntl is only used for locking .db file. cmd == 6 for SETLK. we return 0 to notice that record lock has been set
+  // but it is actually not. we assume no other process will read this .db file.
+  return 0;
 
   // Read one argument
-  va_list valist;
-	va_start(valist, cmd);
-	void* arg = va_arg(valist, void*);
-	va_end(valist);
+  // va_list valist;
+	// va_start(valist, cmd);
+	// void* arg = va_arg(valist, void*);
+	// va_end(valist);
 
-  sgx_status_t status;
-  int ret;
-  int err;
-  if (arg == NULL){
-    status = u_fcntl_arg0_ocall(&ret, &err, fd, cmd);
-  } else {
-    status = u_fcntl_arg1_ocall(&ret, &err, fd, cmd, arg); 
-  }
-
-  if (status != SGX_SUCCESS) {
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-    ocall_print_error(error_msg);
-    set_errno(ESGX);
-    ret = -1;
-    return ret;
-  }
-  if (ret == -1) {
-    set_errno(err);
-  }
-  return ret;
+  // sgx_status_t status;
+  // int ret;
+  // int err;
+  // status = u_fcntl_arg1_ptr_ocall(&ret, &err, fd, cmd, arg); 
+  // if (status != SGX_SUCCESS) {
+  //   char error_msg[256];
+  //   snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+  //   ocall_print_error(error_msg);
+  //   set_errno(ESGX);
+  //   return -1;
+  // }
+  // if (ret == -1) {
+  //   char error_msg[256];
+  //   snprintf(error_msg, sizeof(error_msg), "%s%s return -1 with errno %d during cmd %d", "Debug: when calling ocall_", __func__, err, cmd);
+  //   ocall_print_error(error_msg); 
+  //   set_errno(err);
+  // }
+  // return ret;
 }
 
 // u_read_ocall, maybe sgx_fread
 ssize_t read(int fd, void *buf, size_t count){
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d; count %d\n", __func__, fd, count);
+  ocall_print_string(msg);
+  #endif 
   int ret;
   int err;
   sgx_status_t status = u_read_ocall(&ret, &err, fd, buf, count);
@@ -381,6 +427,11 @@ ssize_t read(int fd, void *buf, size_t count){
 
 // u_write_ocall, maybe sgx_fwrite
 ssize_t write(int fd, const void *buf, size_t count){
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d; count %d\n", __func__, fd, count);
+  ocall_print_string(msg);
+  #endif 
   int ret;
   int err;
   sgx_status_t status = u_write_ocall(&ret, &err, fd, buf, count);
@@ -394,6 +445,11 @@ ssize_t write(int fd, const void *buf, size_t count){
 
 // u_fchmod_ocall
 int fchmod(int fd, mode_t mode){
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d; mode %d\n", __func__, fd, mode);
+  ocall_print_string(msg);
+  #endif
   int ret;
   int err;
   sgx_status_t status = u_fchmod_ocall(&ret, &err, fd, mode);
@@ -407,15 +463,20 @@ int fchmod(int fd, mode_t mode){
 
 // u_unlink_ocall
 int unlink(const char *pathname){
-    int ret;
-    int err;
-    sgx_status_t status = u_unlink_ocall(&ret, &err, pathname);
-    if (status != SGX_SUCCESS) {
-        char error_msg[256];
-        snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-        ocall_print_error(error_msg);
-    }
-    return ret;
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with pathname %s\n", __func__, pathname);
+  ocall_print_string(msg);
+  #endif
+  int ret;
+  int err;
+  sgx_status_t status = u_unlink_ocall(&ret, &err, pathname);
+  if (status != SGX_SUCCESS) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
+  return ret;
 }
 
 // u_mkdir_ocall
@@ -459,6 +520,11 @@ uid_t geteuid(void){
 // 2. simply hard-code it here, or
 // 3. make it configurable in some initializers which exposes rust API
 char* getenv(const char *name){
+  #if defined(SGX_OCALL_DEBUG)
+  char msg[256];
+  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with name %s\n", __func__, name);
+  ocall_print_string(msg);
+  #endif
   char* ret = NULL;
   sgx_status_t status = u_getenv_ocall(&ret, name);
   ocall_print_string("getenv called. name is: ");

@@ -38,3 +38,7 @@ else
 	# cargo build --release
 	# cp ./target/release/libhelloworldsampleenclave.a ../lib/libenclave.a
 endif
+
+.PHONY: clean
+clean: 
+	rm *.i *.o

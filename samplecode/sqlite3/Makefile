@@ -20,7 +20,6 @@
 SGX_SDK ?= /opt/intel/sgxsdk
 SGX_MODE ?= SW
 SGX_ARCH ?= x64
-SGX_DEBUG = 1
 
 TOP_DIR := ../..
 include $(TOP_DIR)/buildenv.mk
@@ -50,9 +49,13 @@ endif
 endif
 
 ifeq ($(SGX_DEBUG), 1)
-	SGX_COMMON_CFLAGS += -O0 -g -ggdb
+	SGX_COMMON_CFLAGS += -O0 -g
 else
 	SGX_COMMON_CFLAGS += -O2
+endif
+
+ifeq ($(SGX_OCALL_DEBUG), 1)
+	SGX_COMMON_CFLAGS += -DSGX_OCALL_DEBUG
 endif
 
 SGX_COMMON_CFLAGS += -fstack-protector
@@ -70,8 +73,6 @@ Enclave_EDL_Files := enclave/Enclave_t.c enclave/Enclave_t.h app/Enclave_u.c app
 
 ######## APP Settings ########
 
-# App_Rust_Flags := --ggdb	
-App_Rust_Flags :=
 App_SRC_Files := $(shell find app/ -type f -name '*.rs') $(shell find app/ -type f -name 'Cargo.toml')
 
 App_Include_Paths := -I ./app -I./include -I$(SGX_SDK)/include -I$(CUSTOM_EDL_PATH)
@@ -129,7 +130,7 @@ $(App_Enclave_u_Object): app/Enclave_u.o
 	$(AR) rcsD $@ $^
 
 $(App_Name): $(App_Enclave_u_Object) $(App_SRC_Files)
-	@cd app && SGX_SDK=$(SGX_SDK) cargo build $(App_Rust_Flags)
+	@cd app && SGX_SDK=$(SGX_SDK) cargo build 
 	@echo "Cargo  =>  $@"
 	mkdir -p bin
 	cp $(App_Rust_Path)/app ./bin
@@ -179,8 +180,8 @@ clean:
 	@cd enclave && cargo clean && rm -f Cargo.lock
 	@cd app && cargo clean && rm -f Cargo.lock
 
-.PHONY: clean-except-cargo
-clean-except-cargo:
+.PHONY: clean2
+clean2:
 	@rm -f $(App_Name) $(RustEnclave_Name) $(Signed_RustEnclave_Name) enclave/*_t.* app/*_u.* lib/*.a enclave/*.i
 	# @cd app && cargo clean && rm -f Cargo.lock	
 

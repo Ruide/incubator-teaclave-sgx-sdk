@@ -12,6 +12,7 @@
             "args": ["test.db"],
             "cwd": "${workspaceFolder}/bin",
             "miDebuggerPath": "/opt/sgxsdk/bin/sgx-gdb",
+            "environment": [{"name": "RUST_BACKTRACE", "value": "full"}],
             "additionalSOLibSearchPath": "/opt/sgxsdk/lib64"
         }
     ]
