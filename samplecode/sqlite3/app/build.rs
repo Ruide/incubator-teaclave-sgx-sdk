@@ -26,6 +26,7 @@ fn main () {
 
     println!("cargo:rustc-link-search=native=./lib");
     println!("cargo:rustc-link-lib=static=Enclave_u");
+    println!("cargo:rustc-link-lib=static=sgx_uprotected_fs");
 
     println!("cargo:rustc-link-search=native={}/lib64", sdk_dir);
     match is_sim.as_ref() {

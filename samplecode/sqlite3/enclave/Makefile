@@ -28,16 +28,11 @@ endif
 
 all: $(Rust_Enclave_Name)
 
-$(Rust_Enclave_Name): $(Rust_Enclave_Files)
-ifeq ($(XARGO_SGX), 1)
-	RUST_TARGET_PATH=$(Rust_Target_Path) xargo build --target x86_64-unknown-linux-sgx --release
-	cp ./target/x86_64-unknown-linux-sgx/release/libhelloworldsampleenclave.a $(Rust_Enclave_Name)
-else
+$(Rust_Enclave_Name): $(Rust_Enclave_Files) 
 	cargo build
-	cp ./target/debug/libhelloworldsampleenclave.a $(Rust_Enclave_Name)
+	cp ../target/debug/libsgx_sqlite_enclave.a $(Rust_Enclave_Name)
 	# cargo build --release
 	# cp ./target/release/libhelloworldsampleenclave.a ../lib/libenclave.a
-endif
 
 .PHONY: clean
 clean: 

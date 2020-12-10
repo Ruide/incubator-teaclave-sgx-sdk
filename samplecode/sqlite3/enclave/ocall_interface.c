@@ -7,6 +7,7 @@
 #include <stdarg.h> // for variable arguments functions
 #include <fcntl.h>
 #include <stdlib.h>
+#include <sgx_tprotected_fs.h>
 
 // At this point we have already definitions needed for ocall interface, so:
 #define DO_NOT_REDEFINE_FOR_OCALL
@@ -16,6 +17,17 @@
 #define O_TMPFILE (__O_TMPFILE | O_DIRECTORY)
 #define ESGX 0xffff /* SGX ERROR*/
 
+/* intel sgx sdk 1.9 */
+// extern SGX_FILE* SGXAPI sgx_fopen(const char* filename, const char* mode, const sgx_key_128bit_t *key);
+// extern size_t SGXAPI sgx_fwrite(const void* ptr, size_t size, size_t count, SGX_FILE* stream);
+// extern size_t SGXAPI sgx_fread(void* ptr, size_t size, size_t count, SGX_FILE* stream);
+// extern int64_t SGXAPI sgx_ftell(SGX_FILE* stream);
+// extern int32_t SGXAPI sgx_fseek(SGX_FILE* stream, int64_t offset, int origin);   
+// extern int32_t SGXAPI sgx_fflush(SGX_FILE* stream);
+// extern int32_t SGXAPI sgx_ferror(SGX_FILE* stream);
+// extern int32_t SGXAPI sgx_fclose(SGX_FILE* stream);
+// extern int32_t SGXAPI sgx_fclear_cache(SGX_FILE* stream);
+
 // libc global error location
 extern int* __errno_location(void);
 
@@ -23,6 +35,12 @@ extern int* __errno_location(void);
 void set_errno(int e){
   *(__errno_location()) = e;
 }
+
+int get_errno(){
+  return *(__errno_location());
+}
+
+SGX_FILE* global_file_stream;
 
 // The only call to sysconf is sysconf(_SC_PAGESIZE)
 // hard code the value here
@@ -45,21 +63,53 @@ int open64(const char *filename, int flags, ...){
   snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with filename %s; flags %d\n", __func__, filename, flags);
   ocall_print_string(msg);
   #endif
-  mode_t mode = 0; // file permission bitmask
 
-  // Get the mode_t from arguments
-	if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE) {
-		va_list valist;
-		va_start(valist, flags);
-		mode = va_arg(valist, mode_t);
-		va_end(valist);
-	}
+  // #define	__S_ISUID	04000	/* Set user ID on execution.  */
+  // #define	__S_ISGID	02000	/* Set group ID on execution.  */
+  // #define	__S_ISVTX	01000	/* Save swapped text after use (sticky).  */
+  // #define	__S_IREAD	0400	/* Read by owner.  */
+  // #define	__S_IWRITE	0200	/* Write by owner.  */
+  // #define	__S_IEXEC	0100	/* Execute by owner.  */
 
+  // # define S_IROTH	(S_IRGRP >> 3)  /* Read by others.  */
+  // # define S_IWOTH	(S_IWGRP >> 3)  /* Write by others.  */
+  // # define S_IXOTH	(S_IXGRP >> 3)  /* Execute by others.  */
+  // # define S_IRGRP	(S_IRUSR >> 3)  /* Read by group.  */
+  // # define S_IWGRP	(S_IWUSR >> 3)  /* Write by group.  */
+  // # define S_IXGRP	(S_IXUSR >> 3)  /* Execute by group.  */
+  // /* Read, write, and execute by group.  */
+  // # define S_IRWXG	(S_IRWXU >> 3)
+  // mode_t mode = 0; // file permission bitmask
+	// mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
+  
+	// now open the file
+	// read_only = (open_mode.read == 1 && open_mode.update == 0); // read only files can be opened simultaneously by many enclaves
+	// fd = open(filename,	O_CREAT | (read_only ? O_RDONLY : O_RDWR) | O_LARGEFILE, mode); // create the file if it doesn't exists, read-only/read-write
+  
+
+
+  // `”w”` will create an empty file for writing. If the file already exists the existing file will be deleted or erased and the new empty file will be used. Be cautious while using these options.
+  // `”w+”` will create an empty file for both reading and writing.
+  
+  const char* mode = "w";
+
+  uint8_t key[16] = {1};
+  global_file_stream = sgx_fopen(filename, mode, key); // fopen is compatible with c++ fopen, however, its semantics differs from os syscall open64
   int ret;
   int err;
 
-  // sgx_status_t status = ocall_open64(&ret, filename, flags, mode);
-  sgx_status_t status = u_open64_ocall(&ret, &err, filename, flags, mode);
+  mode_t mode2 = 0; // file permission bitmask
+
+  // Get the mode from arguments
+	if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE) {
+		va_list valist;
+		va_start(valist, flags); // Init a variable argument list
+		mode = va_arg(valist, mode_t); // Retrieve next value with specified type
+		va_end(valist); // End using variable argument list
+	}
+
+  // sgx_status_t status = ocall_open64(&ret, filename, flags, mode2);
+  sgx_status_t status = u_open64_ocall(&ret, &err, filename, flags, mode2);
   if (status != SGX_SUCCESS) {
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
@@ -70,8 +120,20 @@ int open64(const char *filename, int flags, ...){
   if (ret == -1) {
     set_errno(err);
   }
-  return ret;
-  
+
+  err = get_errno();
+
+  // errno 2 for ENOENT:	No such file or directory. fopen would open() file and put it in protected_fs_file class instance and close(fd). 
+  // I guess fclose finalize encrypted content and write out.
+  // if (err == 0 || err == 2) {
+  if (err == 0) {
+    set_errno(0);
+    // return non-zero fd, however, with fopen, we donot have a fd. use 4 (0~3 reserved for stdin, stdout, etc).
+    // we cannot emulate, because fcntl, fstat also requires emulate then.
+    return ret;  
+  } else {
+    return -1;
+  }
 }
 
 // replace by sgx_file::u_lseek_ocall, maybe sgx_fseek
@@ -167,14 +229,15 @@ pid_t getpid(void){
   snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s\n", __func__);
   ocall_print_string(msg);
   #endif
-  int ret;
-  sgx_status_t status = u_getpid_ocall(&ret);
-  if (status != SGX_SUCCESS) {
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-    ocall_print_error(error_msg);
-  }
-  return ret;
+  // int ret;
+  // sgx_status_t status = u_getpid_ocall(&ret);
+  // if (status != SGX_SUCCESS) {
+  //   char error_msg[256];
+  //   snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+  //   ocall_print_error(error_msg);
+  // }
+  // return ret;
+  return 0;
 }
 
 // fsync ask os to flush a file descriptor to disk. should be safe to directly relay.
@@ -222,6 +285,9 @@ int close(int fd){
   #endif
   int ret;
   int err;
+
+  // this is different from close(int fd), and normally fopen should use close() but not fclose.
+  // ret = sgx_fclose(global_file_stream);
   sgx_status_t status = u_close_ocall(&ret, &err, fd);
   if (status != SGX_SUCCESS) {
     char error_msg[256];
@@ -234,6 +300,9 @@ int close(int fd){
     set_errno(err);
   }
   return ret;
+
+  // err = get_errno();
+  // return ret;
 }
 
 // needs further discussion on access

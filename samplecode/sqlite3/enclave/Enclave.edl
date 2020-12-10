@@ -22,6 +22,7 @@ enclave {
     from "sgx_tstdc.edl" import *;
     from "sgx_process.edl" import *;
     from "sgx_env.edl" import *;
+    from "sgx_tprotected_fs.edl" import *;
     include "../ocall_types.h" // Need to import some type declartions from stdlib
 
     trusted {

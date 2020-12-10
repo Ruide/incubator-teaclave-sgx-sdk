@@ -1,10 +1,10 @@
 [package]
-name = "Helloworldsampleenclave"
+name = "Sgxsqliteenclave"
 version = "1.0.0"
 authors = ["The Teaclave Authors"]
 
 [lib]
-name = "helloworldsampleenclave"
+name = "sgx_sqlite_enclave"
 crate-type = ["staticlib"]
 
 [features]
