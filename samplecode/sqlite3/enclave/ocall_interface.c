@@ -63,6 +63,28 @@ ssize_t write(int fd, const void *buf, size_t count);
 ssize_t read(int fd, void *buf, size_t count);
 int close(int fd);
 
+/* 
+ * printf: 
+ *   Invokes OCALL to display the enclave buffer to the terminal.
+ */
+int printf(const char* fmt, ...)
+{
+    char buf[BUFSIZ] = { '\0' };
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, BUFSIZ, fmt, ap);
+    va_end(ap);
+    ocall_print_string(buf);
+    return (int)strnlen(buf, BUFSIZ - 1) + 1;
+}
+
+
+void print_buf_hex(char* buf, int count){
+  for (int i = 0; i < count; i++) {
+    printf("%d", buf[i]);
+  }
+}
+ 
 // The only call to sysconf is sysconf(_SC_PAGESIZE)
 // hard code the value here
 long int sysconf(int name){
@@ -94,9 +116,14 @@ int sgx_open(const char *filename, int flags, ...){
 		va_end(valist); // End using variable argument list
 	}
 
-  int fd = open64(filename, flags, mode2);
+  int fd = open64(filename, flags, mode2);  // create shadow file
+  #if defined(SGX_OCALL_DEBUG)
+  snprintf(msg, sizeof(msg), "Debug: open64 create a fd of %d for %s\n", fd, filename);
+  ocall_print_string(msg);
+  #endif
+ 
   if (fd == -1){ // failed to create/open file
-    return fd; // create shadow file
+    return fd;
   }
   
   // // fool the sqlite about file its opening now
@@ -228,13 +255,21 @@ ssize_t sgx_read(int fd, void *buf, size_t count){
   ocall_print_string(msg);
   #endif 
 
-  read(fd, buf, count); // shadow read to move file offset
-
   int fd_stream_idx = 0;
   ssize_t read_bytes = 0;
+
+  read_bytes = read(fd, buf, count); // shadow read to move file offset
+  printf("%s: ", "buf from linux read");
+  print_buf_hex(buf, read_bytes);
+  printf("\n");
+
   for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
     if (global_fd_stream_array[fd_stream_idx].fd == fd){
       read_bytes = sgx_fread(buf, 1, count, global_fd_stream_array[fd_stream_idx].file_stream);
+      printf("%s: ", "buf from sgx_fread");
+      print_buf_hex(buf, read_bytes);
+      printf("\n");
+
       if (read_bytes != count) {
         char msg[256];
         snprintf(msg, sizeof(msg), "Warning: ocall_%s sgx_read failed to read %s; count %ld; read %ld\n", __func__, global_fd_stream_array[fd_stream_idx].file_name, count, read_bytes);
@@ -244,6 +279,8 @@ ssize_t sgx_read(int fd, void *buf, size_t count){
     }
   }
 
+  // read_bytes = read(fd, buf, count); // TEST: shadow read to move file offset
+  
   return read_bytes;
 }
 
@@ -281,7 +318,14 @@ off_t sgx_lseek(int fd, off_t offset, int whence) {
     }
   }
 
-  return lseek64(fd, offset, whence);
+  // lseek64 returns the offset location as measured in bytes from the beginning of the file.
+  off_t new_offset = lseek64(fd, offset, whence);
+  #if defined(SGX_OCALL_DEBUG)
+  snprintf(msg, sizeof(msg), "Debug: new_offset for shadow file is %ld\n", new_offset);
+  ocall_print_string(msg);
+  #endif
+ 
+  return new_offset;
 } // sgx_fseek
 
 ssize_t sgx_write(int fd, const void *buf, size_t count){
@@ -296,6 +340,9 @@ ssize_t sgx_write(int fd, const void *buf, size_t count){
   for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
     if (global_fd_stream_array[fd_stream_idx].fd == fd){
       written_bytes = sgx_fwrite(buf, 1, count, global_fd_stream_array[fd_stream_idx].file_stream);
+      printf("%s: ", "buf of sgx_fwrite");
+      print_buf_hex(buf, written_bytes);
+      printf("\n");
       #if defined(SGX_OCALL_DEBUG)
       char msg[256];
       snprintf(msg, sizeof(msg), "Debug: ocall_%s writing to file %s; count %ld; written %ld\n", __func__, global_fd_stream_array[fd_stream_idx].file_name, count, written_bytes);
@@ -307,10 +354,9 @@ ssize_t sgx_write(int fd, const void *buf, size_t count){
 
   // 0-nize buffer. create shadow file
   // for (int i=0; i< count; i++){
-  for (int i=0; i< written_bytes; i++){
-    *((unsigned char*)buf + i) = '0';
-  }
-
+  // for (int i=0; i< written_bytes; i++){
+  //   *((unsigned char*)buf + i) = '\0';
+  // }
 
   return write(fd, buf, written_bytes);
   // return write(fd, buf, count);
@@ -604,7 +650,23 @@ int sgx_lstat( const char* path, struct stat *buf ) {
   #endif
   int ret;
   int err;
-  sgx_status_t status = u_lstat_ocall(&ret, &err, path, buf);
+
+
+  char sgx_path[FILE_NAME_SIZE];
+  for (int i =0; i < FILENAME_MAX - 5; i++) {
+    sgx_path[i] = path[i];
+    if (path[i] == '\0'){
+      sgx_path[i] = '.';
+      sgx_path[i+1] = 's';
+      sgx_path[i+2] = 'g';
+      sgx_path[i+3] = 'x';
+      sgx_path[i+4] = '\0';
+      break;
+    }
+  }
+
+  sgx_status_t status = u_lstat_ocall(&ret, &err, sgx_path, buf);
+  // sgx_status_t status = u_lstat_ocall(&ret, &err, path, buf);
   if (status != SGX_SUCCESS) {
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
@@ -615,6 +677,13 @@ int sgx_lstat( const char* path, struct stat *buf ) {
   if (ret == -1) {
     set_errno(err);
   }
+
+
+  #if defined(SGX_OCALL_DEBUG)
+  snprintf(msg, sizeof(msg), "Debug: err is %d and ret is %d\n", err, ret);
+  ocall_print_string(msg);
+  #endif
+
   return ret;
 }
 
@@ -626,7 +695,21 @@ int sgx_stat(const char *path, struct stat *buf){
   #endif
   int ret;
   int err;
-  sgx_status_t status = u_stat_ocall(&ret, &err, path, buf);
+
+  char sgx_path[FILE_NAME_SIZE];
+  for (int i =0; i < FILENAME_MAX - 5; i++) {
+    sgx_path[i] = path[i];
+    if (path[i] == '\0'){
+      sgx_path[i] = '.';
+      sgx_path[i+1] = 's';
+      sgx_path[i+2] = 'g';
+      sgx_path[i+3] = 'x';
+      sgx_path[i+4] = '\0';
+      break;
+    }
+  }
+
+  sgx_status_t status = u_stat_ocall(&ret, &err, sgx_path, buf);
   if (status != SGX_SUCCESS) {
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
@@ -637,6 +720,12 @@ int sgx_stat(const char *path, struct stat *buf){
   if (ret == -1) {
     set_errno(err);
   }
+
+  #if defined(SGX_OCALL_DEBUG)
+  snprintf(msg, sizeof(msg), "Debug: err is %d and ret is %d\n", err, ret);
+  ocall_print_string(msg);
+  #endif
+
   return ret;
 }
 
@@ -668,17 +757,34 @@ int sgx_fstat(int fd, struct stat *buf){ // used in 5 locations, seems fine to l
   // buf->st_mtim = 1607635982; /* time of last modification */
   // buf->st_ctim = 1607635982; /* time of last status change */
 
-  sgx_status_t status = u_fstat_ocall(&ret, &err, fd, buf);
-  if (status != SGX_SUCCESS) {
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-    ocall_print_error(error_msg);
-    set_errno(ESGX);
-    return -1;
+  // need stat about sgx_file not the shadow file. e.g. st_size, st_blocks
+  // fstat use fd, stat use pathname, use stat to replace this
+  // sgx_status_t status = u_fstat_ocall(&ret, &err, fd, buf);
+
+  int fd_stream_idx = 0;
+  for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
+    if (global_fd_stream_array[fd_stream_idx].fd == fd){
+      sgx_status_t status = u_stat_ocall(&ret, &err, global_fd_stream_array[fd_stream_idx].file_name, buf);
+      if (status != SGX_SUCCESS) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+        ocall_print_error(error_msg);
+        set_errno(ESGX);
+        return -1;
+      }      
+      break;
+    }
   }
-  if (ret == -1) {
-    set_errno(err);
-  }
+  
+  // if (ret == -1) {
+  set_errno(err);
+  // }
+
+  #if defined(SGX_OCALL_DEBUG)
+  snprintf(msg, sizeof(msg), "Debug: err is %d and ret is %d\n", err, ret);
+  ocall_print_string(msg);
+  #endif
+
   return ret;
 }
 
@@ -804,12 +910,35 @@ int unlink(const char *pathname){
   #endif
   int ret;
   int err;
+  // shadow file
   sgx_status_t status = u_unlink_ocall(&ret, &err, pathname);
   if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
       ocall_print_error(error_msg);
   }
+
+
+  // sgx file
+  char sgx_pathname[FILE_NAME_SIZE];
+  for (int i =0; i < FILENAME_MAX - 5; i++) {
+    sgx_pathname[i] = pathname[i];
+    if (pathname[i] == '\0'){
+      sgx_pathname[i] = '.';
+      sgx_pathname[i+1] = 's';
+      sgx_pathname[i+2] = 'g';
+      sgx_pathname[i+3] = 'x';
+      sgx_pathname[i+4] = '\0';
+      break;
+    }
+  }
+  status = u_unlink_ocall(&ret, &err, sgx_pathname);
+  if (status != SGX_SUCCESS) {
+      char error_msg[256];
+      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
+      ocall_print_error(error_msg);
+  }
+
   return ret;
 }
 
