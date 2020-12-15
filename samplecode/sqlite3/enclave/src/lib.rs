@@ -51,6 +51,7 @@ extern "C" {
         arg3: *mut *mut ::std::os::raw::c_char,
         arg4: *mut *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
+    static mut key: [i8; 16];
 }
 
 static mut _db_unused: sqlite3 = sqlite3 { _unused: [0;0] };
@@ -68,8 +69,12 @@ static mut db_wrapper: Option<*mut sqlite3> = None;
 ///
 /// Always returns SGX_SUCCESS
 #[no_mangle]
-pub extern "C" fn ecall_opendb(dbname: *const i8) -> sgx_status_t {
+pub extern "C" fn ecall_opendb(dbname: *const i8, sgx_kdk: *const i8) -> sgx_status_t {
     unsafe{
+        let sgx_kdk_slice = std::slice::from_raw_parts(sgx_kdk, 16);
+        for idx in 0..16{
+            key[idx] = sgx_kdk_slice[idx];
+        }
         db_wrapper = Some(&mut _db_unused as *mut sqlite3);
         let mut db: *mut sqlite3 = db_wrapper.expect("DB failed to unwrap");
         let res = sqlite3_open(dbname, &mut db);

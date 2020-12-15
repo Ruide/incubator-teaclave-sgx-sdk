@@ -26,7 +26,7 @@ enclave {
     include "../ocall_types.h" // Need to import some type declartions from stdlib
 
     trusted {
-        public sgx_status_t ecall_opendb([in, string] const char *dbname); // open SQLite connection to dbname
+        public sgx_status_t ecall_opendb([in, string] const char *dbname, [in, string] const char *sgx_kdk); // open SQLite connection to dbname
         public sgx_status_t ecall_execute_sql([in, string] const char *sql); // Execute SQL statement inside enclave
         public sgx_status_t ecall_closedb(void); // close SQLite db connection
      };

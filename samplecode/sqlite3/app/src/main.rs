@@ -24,7 +24,7 @@ use std::io::{self, Write};
 static ENCLAVE_FILE: &'static str = "enclave.signed.so";
 
 extern {
-    fn ecall_opendb(eid: sgx_enclave_id_t, retval: *mut sgx_status_t, dbname: *const i8) -> sgx_status_t;
+    fn ecall_opendb(eid: sgx_enclave_id_t, retval: *mut sgx_status_t, dbname: *const i8, sgx_kdk: *const i8) -> sgx_status_t;
     fn ecall_execute_sql(eid: sgx_enclave_id_t, retval: *mut sgx_status_t, sql: *const i8) -> sgx_status_t;
     fn ecall_closedb(eid: sgx_enclave_id_t, retval: *mut sgx_status_t) -> sgx_status_t;
 }
@@ -83,11 +83,12 @@ fn main() {
     println!("[+] Info: SQLite SGX enclave successfully created.");
 
     let database_name = std::env::args().nth(1).unwrap();
+    let key: [i8; 16] = [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1];
     let mut retval = sgx_status_t::SGX_SUCCESS;
 
     let result = unsafe {
         // Open SQLite database
-        ecall_opendb(enclave.geteid(), &mut retval, database_name.as_ptr() as * const i8)
+        ecall_opendb(enclave.geteid(), &mut retval, database_name.as_ptr() as * const i8, key.as_ptr() as * const i8)
     };
     match result {
         sgx_status_t::SGX_SUCCESS => {
