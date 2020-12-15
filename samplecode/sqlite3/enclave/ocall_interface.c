@@ -48,7 +48,8 @@ struct Fd_stream {
   char file_name[FILE_NAME_SIZE];
   int fd; // zero initialized by-default
   // int sgx_fd;
-  int Used; // indicates if this item is set or not, 0 for notUsed (false), 1 for Used (true)
+  int isUsed; // indicates if this item is set or not, 0 for notUsed (false), 1 for isUsed (true)
+  int isDirectory; // 0 for no, 1 for yes
 };
 
 typedef struct Fd_stream Fd_stream;
@@ -56,6 +57,7 @@ typedef struct Fd_stream Fd_stream;
 Fd_stream global_fd_stream_array[MAX_FD_STREAM_ARRAY_SIZE];
 
 sgx_key_128bit_t key = {1};
+int global_fd = 3;
 
 off_t lseek64(int fd, off_t offset, int whence);
 int open64(const char *filename, int flags, ...);
@@ -107,6 +109,7 @@ int sgx_open(const char *filename, int flags, ...){
   ocall_print_string(msg);
   #endif
 
+  #ifdef SGX_FD_SHADOW
   mode_t mode2 = 0; // file permission bitmask, set by passed in mode.
   // Get the mode from arguments
 	if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE) {
@@ -125,6 +128,7 @@ int sgx_open(const char *filename, int flags, ...){
   if (fd == -1){ // failed to create/open file
     return fd;
   }
+  #endif
   
   // // fool the sqlite about file its opening now
   // else {
@@ -134,20 +138,6 @@ int sgx_open(const char *filename, int flags, ...){
   // `”w”` will create an empty file for writing. If the file already exists the existing file will be deleted or erased and the new empty file will be used. Be cautious while using these options.
   // `”w+”` will create an empty file for both reading and writing.
 
-  // length of file name must be shorter than FILE_NAME_SIZE - 5, check later
-  // char sgx_file_extension[5] = ".sgx";
-  char sgx_filename[FILE_NAME_SIZE];
-  for (int i =0; i < FILENAME_MAX - 5; i++) {
-    sgx_filename[i] = filename[i];
-    if (filename[i] == '\0'){
-      sgx_filename[i] = '.';
-      sgx_filename[i+1] = 's';
-      sgx_filename[i+2] = 'g';
-      sgx_filename[i+3] = 'x';
-      sgx_filename[i+4] = '\0';
-      break;
-    }
-  }
 
   // int sgx_fd = open64(sgx_filename, flags, mode2); // open another file just for sgx file system
   // if (sgx_fd == -1){ // failed to create/open file
@@ -156,50 +146,80 @@ int sgx_open(const char *filename, int flags, ...){
 
   // close(sgx_fd); // make a shadow file. no need to keep it open
 
+  int fd = global_fd;
+  global_fd += 1; // everytime open a new fd, never recycle, maybe impl recycle later
+
   // exist valid fd 
   const char* mode = "r+"; // read the file
   int fd_stream_idx = 0;
   for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
     // check if stream exists
-    if (global_fd_stream_array[fd_stream_idx].Used == 1){ 
+    if (global_fd_stream_array[fd_stream_idx].isUsed == 1){ 
       continue;
     }
-    // check file name. strcmp == 0 for equal. 
-    // if( strcmp(global_fd_stream_array[fd_stream_idx].file_name, sgx_filename) == 0){
-    //   // shadow fd completed for this stream if !=0.
-    //   if (global_fd_stream_array[fd_stream_idx].fd != 0){ 
-    //     break; 
-    //   }
-    //   else {
-    //       char error_msg[256];
-    //       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: fopen succeeded but open failed for ", sgx_filename);
-    //       ocall_print_error(error_msg);
-    //       break;
-    //   }
-    // } else {
-    memcpy(global_fd_stream_array[fd_stream_idx].file_name , sgx_filename, FILE_NAME_SIZE);
-
     
+    #ifdef SGX_FD_SHADOW
+    // length of file name must be shorter than FILE_NAME_SIZE - 5, check later
+    // char sgx_file_extension[5] = ".sgx";
+    char sgx_filename[FILE_NAME_SIZE];
+    for (int i =0; i < FILENAME_MAX - 5; i++) {
+      sgx_filename[i] = filename[i];
+      if (filename[i] == '\0'){
+        sgx_filename[i] = '.';
+        sgx_filename[i+1] = 's';
+        sgx_filename[i+2] = 'g';
+        sgx_filename[i+3] = 'x';
+        sgx_filename[i+4] = '\0';
+        break;
+      }
+    }
+    memcpy(global_fd_stream_array[fd_stream_idx].file_name , sgx_filename, FILE_NAME_SIZE);
     // sgx_fopen is compatible with c++ fopen, however, its semantics differs from os syscall open64. it calls open(), close()
     global_fd_stream_array[fd_stream_idx].file_stream = sgx_fopen(sgx_filename, mode, key); 
-    int error_code = sgx_ferror(global_fd_stream_array[fd_stream_idx].file_stream);
+    #else
+    memcpy(global_fd_stream_array[fd_stream_idx].file_name , filename, FILE_NAME_SIZE);
+    // sgx_fopen is compatible with c++ fopen, however, its semantics differs from os syscall open64. it calls open(), close()
+    global_fd_stream_array[fd_stream_idx].file_stream = sgx_fopen(filename, mode, key); 
+    #endif
+
+    int ferror_code = sgx_ferror(global_fd_stream_array[fd_stream_idx].file_stream);
+    int errno_code = get_errno();
 
     if (global_fd_stream_array[fd_stream_idx].file_stream == NULL) {
       #if defined(SGX_OCALL_DEBUG)
       char msg[256];
-      snprintf(msg, sizeof(msg), "Warning: Entering ocall_%s with filename %s; error code %d; use mode w+;\n", __func__, sgx_filename, error_code);
+      snprintf(msg, sizeof(msg), "Warning: Entering ocall_%s with filename %s; ferror code %d; errno code %d\n", __func__, global_fd_stream_array[fd_stream_idx].file_name, ferror_code, errno_code);
       ocall_print_string(msg);
       #endif
-      mode = "w+"; // w is write-only, can't read.
-      global_fd_stream_array[fd_stream_idx].file_stream = sgx_fopen(sgx_filename, mode, key); 
-    }   
+      if (errno_code == 2){ // 2	ENOENT	No such file or directory
+        #if defined(SGX_OCALL_DEBUG)
+        printf("%s", "Debug: sgx_open file not exsist, so use w+ to create one\n");
+        #endif
+        mode = "w+"; // w is write-only, can't read. w+ overwrite and can read/write
+        global_fd_stream_array[fd_stream_idx].file_stream = sgx_fopen(global_fd_stream_array[fd_stream_idx].file_name, mode, key); 
+      }
 
-    if (error_code > 0){ // EISDIR 22, Is a directory, < 0 is -1, is NULL stream
-      #if defined(SGX_OCALL_DEBUG)
-      char msg[256];
-      snprintf(msg, sizeof(msg), "Warning: Entering ocall_%s with filename %s; error code %d\n", __func__, sgx_filename, error_code);
-      ocall_print_string(msg);
-      #endif 
+      if (errno_code == 21){ // 21	EISDIR	Is a directory
+        #if defined(SGX_OCALL_DEBUG)
+        printf("%s", "Debug: sgx_open EISDIR Is a directory, and sgx_fopen does not support that, so fake one\n");
+        #endif
+        char sgx_filename[FILE_NAME_SIZE];
+        for (int i =0; i < FILENAME_MAX - 5; i++) {
+          sgx_filename[i] = filename[i];
+          if (filename[i] == '\0'){
+            sgx_filename[i] = '.';
+            sgx_filename[i+1] = 's';
+            sgx_filename[i+2] = 'g';
+            sgx_filename[i+3] = 'x';
+            sgx_filename[i+4] = '\0';
+            break;
+          }
+        }
+        mode = "w+"; // fake a directory file
+        memcpy(global_fd_stream_array[fd_stream_idx].file_name , sgx_filename, FILE_NAME_SIZE);
+        global_fd_stream_array[fd_stream_idx].file_stream = sgx_fopen(sgx_filename, mode, key); 
+        set_errno(0);
+      }
     }
 
     // if (error_code == ENOENT || ){ // No such file or directory, need to use w+
@@ -212,7 +232,7 @@ int sgx_open(const char *filename, int flags, ...){
     //   global_fd_stream_array[fd_stream_idx].file_stream = sgx_fopen(sgx_filename, mode, key); 
     // }
     
-    global_fd_stream_array[fd_stream_idx].Used = 1;
+    global_fd_stream_array[fd_stream_idx].isUsed = 1;
     global_fd_stream_array[fd_stream_idx].fd = fd; // sgx protected_file class actually does not need fd, here fd is used as a index for finding file stream. 
     // global_fd_stream_array[fd_stream_idx].sgx_fd = sgx_fd; // set the mapping between sgx_fd and fd 
     break;
@@ -234,7 +254,7 @@ int sgx_close(int fd){
   for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
     if (global_fd_stream_array[fd_stream_idx].fd == fd){
       ret = sgx_fclose(global_fd_stream_array[fd_stream_idx].file_stream);
-      global_fd_stream_array[fd_stream_idx].Used = 0; // mark stream empty now
+      global_fd_stream_array[fd_stream_idx].isUsed = 0; // mark stream empty now
       if (ret != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "%s%s%s%d", "Error: when calling ocall_", __func__, " sgx_fclose ret is ", ret);
@@ -244,7 +264,10 @@ int sgx_close(int fd){
     }
   }
 
+  #ifdef SGX_FD_SHADOW
   ret = close(fd);
+  #endif
+
   return ret;
 }
 
@@ -258,10 +281,10 @@ ssize_t sgx_read(int fd, void *buf, size_t count){
   int fd_stream_idx = 0;
   ssize_t read_bytes = 0;
 
-  read_bytes = read(fd, buf, count); // shadow read to move file offset
-  printf("%s: ", "buf from linux read");
-  print_buf_hex(buf, read_bytes);
-  printf("\n");
+  // read_bytes = read(fd, buf, count); // shadow read to move file offset
+  // printf("%s: ", "buf from linux read");
+  // print_buf_hex(buf, read_bytes);
+  // printf("\n");
 
   for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
     if (global_fd_stream_array[fd_stream_idx].fd == fd){
@@ -318,14 +341,18 @@ off_t sgx_lseek(int fd, off_t offset, int whence) {
     }
   }
 
+  #ifdef SGX_FD_SHADOW  
   // lseek64 returns the offset location as measured in bytes from the beginning of the file.
-  off_t new_offset = lseek64(fd, offset, whence);
+  off_t new_offset = lseek64(fd, offset, whence); // this will return different offset than sgx_fseek has
   #if defined(SGX_OCALL_DEBUG)
   snprintf(msg, sizeof(msg), "Debug: new_offset for shadow file is %ld\n", new_offset);
   ocall_print_string(msg);
   #endif
- 
+  
   return new_offset;
+  #else
+  return offset; // pretend to succeed everytime
+  #endif
 } // sgx_fseek
 
 ssize_t sgx_write(int fd, const void *buf, size_t count){
@@ -340,10 +367,10 @@ ssize_t sgx_write(int fd, const void *buf, size_t count){
   for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
     if (global_fd_stream_array[fd_stream_idx].fd == fd){
       written_bytes = sgx_fwrite(buf, 1, count, global_fd_stream_array[fd_stream_idx].file_stream);
-      printf("%s: ", "buf of sgx_fwrite");
-      print_buf_hex(buf, written_bytes);
-      printf("\n");
       #if defined(SGX_OCALL_DEBUG)
+      // printf("%s: ", "buf of sgx_fwrite");
+      // print_buf_hex(buf, written_bytes);
+      // printf("\n")
       char msg[256];
       snprintf(msg, sizeof(msg), "Debug: ocall_%s writing to file %s; count %ld; written %ld\n", __func__, global_fd_stream_array[fd_stream_idx].file_name, count, written_bytes);
       ocall_print_string(msg);
@@ -352,13 +379,18 @@ ssize_t sgx_write(int fd, const void *buf, size_t count){
     }
   }
 
+
+  #ifdef SGX_FD_SHADOW
   // 0-nize buffer. create shadow file
   // for (int i=0; i< count; i++){
   // for (int i=0; i< written_bytes; i++){
-  //   *((unsigned char*)buf + i) = '\0';
+  //   *((unsigned char*)buf + i) = '1';
   // }
 
-  return write(fd, buf, written_bytes);
+  written_bytes = write(fd, buf, written_bytes);
+  #endif
+
+  return written_bytes;
   // return write(fd, buf, count);
   // return write(fd, buf, count); // not encrypted for now
 }
@@ -389,7 +421,11 @@ int sgx_fsync(int fd) {
     }
   }
 
-  return fsync(fd);
+  #ifdef SGX_FD_SHADOW
+  ret = fsync(fd);
+  #endif 
+
+  return ret;
 
 } // sgx_fflush
 
@@ -651,7 +687,7 @@ int sgx_lstat( const char* path, struct stat *buf ) {
   int ret;
   int err;
 
-
+  #ifdef SGX_FD_SHADOW
   char sgx_path[FILE_NAME_SIZE];
   for (int i =0; i < FILENAME_MAX - 5; i++) {
     sgx_path[i] = path[i];
@@ -664,9 +700,15 @@ int sgx_lstat( const char* path, struct stat *buf ) {
       break;
     }
   }
-
   sgx_status_t status = u_lstat_ocall(&ret, &err, sgx_path, buf);
-  // sgx_status_t status = u_lstat_ocall(&ret, &err, path, buf);
+  #if defined(SGX_OCALL_DEBUG)
+  printf("%s%s\n", "Debug: sgx_path for u_lstat_ocall is: ", sgx_path);
+  #endif
+  #else
+  sgx_status_t status = u_lstat_ocall(&ret, &err, path, buf);
+  #endif
+
+
   if (status != SGX_SUCCESS) {
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
@@ -696,6 +738,7 @@ int sgx_stat(const char *path, struct stat *buf){
   int ret;
   int err;
 
+  #ifdef SGX_FD_SHADOW
   char sgx_path[FILE_NAME_SIZE];
   for (int i =0; i < FILENAME_MAX - 5; i++) {
     sgx_path[i] = path[i];
@@ -710,6 +753,13 @@ int sgx_stat(const char *path, struct stat *buf){
   }
 
   sgx_status_t status = u_stat_ocall(&ret, &err, sgx_path, buf);
+  #if defined(SGX_OCALL_DEBUG)
+  printf("%s%s\n", "Debug: sgx_path for u_stat_ocall is: ", sgx_path);
+  #endif
+  #else
+  sgx_status_t status = u_stat_ocall(&ret, &err, path, buf);
+  #endif
+
   if (status != SGX_SUCCESS) {
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
@@ -764,7 +814,11 @@ int sgx_fstat(int fd, struct stat *buf){ // used in 5 locations, seems fine to l
   int fd_stream_idx = 0;
   for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
     if (global_fd_stream_array[fd_stream_idx].fd == fd){
+      
       sgx_status_t status = u_stat_ocall(&ret, &err, global_fd_stream_array[fd_stream_idx].file_name, buf);
+      #if defined(SGX_OCALL_DEBUG)
+      printf("%s%s\n", "Debug: filename for u_stat_ocall is: ", global_fd_stream_array[fd_stream_idx].file_name);
+      #endif
       if (status != SGX_SUCCESS) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
@@ -918,7 +972,7 @@ int unlink(const char *pathname){
       ocall_print_error(error_msg);
   }
 
-
+  #ifdef SGX_FD_SHADOW
   // sgx file
   char sgx_pathname[FILE_NAME_SIZE];
   for (int i =0; i < FILENAME_MAX - 5; i++) {
@@ -933,6 +987,10 @@ int unlink(const char *pathname){
     }
   }
   status = u_unlink_ocall(&ret, &err, sgx_pathname);
+  #else
+  status = u_unlink_ocall(&ret, &err, pathname);
+  #endif
+
   if (status != SGX_SUCCESS) {
       char error_msg[256];
       snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);

@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "cerrno": "c",
-        "*.tcc": "c"
+        "*.tcc": "c",
+        "system_error": "c"
     }
 }
