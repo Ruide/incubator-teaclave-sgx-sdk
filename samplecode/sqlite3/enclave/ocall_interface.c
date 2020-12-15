@@ -14,22 +14,9 @@
 #define DO_NOT_REDEFINE_FOR_OCALL
 #include "Enclave_t.h"
 
-// For open64 need to define this
-#define O_TMPFILE (__O_TMPFILE | O_DIRECTORY)
 #define ESGX 0xffff /* SGX ERROR*/
 #define MAX_FD_STREAM_ARRAY_SIZE 0x14 // #define FOPEN_MAX     20
 #define FILE_NAME_SIZE 0xff // #define FILENAME_MAX  260. so 0xff = 256 < 260 is fine
-
-/* intel sgx sdk 1.9 */
-// extern SGX_FILE* SGXAPI sgx_fopen(const char* filename, const char* mode, const sgx_key_128bit_t *key);
-// extern size_t SGXAPI sgx_fwrite(const void* ptr, size_t size, size_t count, SGX_FILE* stream);
-// extern size_t SGXAPI sgx_fread(void* ptr, size_t size, size_t count, SGX_FILE* stream);
-// extern int64_t SGXAPI sgx_ftell(SGX_FILE* stream);
-// extern int32_t SGXAPI sgx_fseek(SGX_FILE* stream, int64_t offset, int origin);   
-// extern int32_t SGXAPI sgx_fflush(SGX_FILE* stream);
-// extern int32_t SGXAPI sgx_ferror(SGX_FILE* stream);
-// extern int32_t SGXAPI sgx_fclose(SGX_FILE* stream);
-// extern int32_t SGXAPI sgx_fclear_cache(SGX_FILE* stream);
 
 // libc global error location
 extern int* __errno_location(void);
@@ -47,7 +34,6 @@ struct Fd_stream {
   SGX_FILE* file_stream;
   char file_name[FILE_NAME_SIZE];
   int fd; // zero initialized by-default
-  // int sgx_fd;
   int isUsed; // indicates if this item is set or not, 0 for notUsed (false), 1 for isUsed (true)
   int isDirectory; // 0 for no, 1 for yes
 };
@@ -58,12 +44,6 @@ Fd_stream global_fd_stream_array[MAX_FD_STREAM_ARRAY_SIZE];
 
 sgx_key_128bit_t key = {1};
 int global_fd = 3;
-
-off_t lseek64(int fd, off_t offset, int whence);
-int open64(const char *filename, int flags, ...);
-ssize_t write(int fd, const void *buf, size_t count);
-ssize_t read(int fd, void *buf, size_t count);
-int close(int fd);
 
 /* 
  * printf: 
@@ -109,43 +89,6 @@ int sgx_open(const char *filename, int flags, ...){
   ocall_print_string(msg);
   #endif
 
-  #ifdef SGX_FD_SHADOW
-  mode_t mode2 = 0; // file permission bitmask, set by passed in mode.
-  // Get the mode from arguments
-	if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE) {
-		va_list valist;
-		va_start(valist, flags); // Init a variable argument list
-		mode2 = va_arg(valist, mode_t); // Retrieve next value with specified type
-		va_end(valist); // End using variable argument list
-	}
-
-  int fd = open64(filename, flags, mode2);  // create shadow file
-  #if defined(SGX_OCALL_DEBUG)
-  snprintf(msg, sizeof(msg), "Debug: open64 create a fd of %d for %s\n", fd, filename);
-  ocall_print_string(msg);
-  #endif
- 
-  if (fd == -1){ // failed to create/open file
-    return fd;
-  }
-  #endif
-  
-  // // fool the sqlite about file its opening now
-  // else {
-  //   close(fd); // close fd, so won't have issue with open, only depends on sgx_open
-  // }
-  
-  // `”w”` will create an empty file for writing. If the file already exists the existing file will be deleted or erased and the new empty file will be used. Be cautious while using these options.
-  // `”w+”` will create an empty file for both reading and writing.
-
-
-  // int sgx_fd = open64(sgx_filename, flags, mode2); // open another file just for sgx file system
-  // if (sgx_fd == -1){ // failed to create/open file
-  //   return sgx_fd; // make sure file exist
-  // }
-
-  // close(sgx_fd); // make a shadow file. no need to keep it open
-
   int fd = global_fd;
   global_fd += 1; // everytime open a new fd, never recycle, maybe impl recycle later
 
@@ -158,29 +101,8 @@ int sgx_open(const char *filename, int flags, ...){
       continue;
     }
     
-    #ifdef SGX_FD_SHADOW
-    // length of file name must be shorter than FILE_NAME_SIZE - 5, check later
-    // char sgx_file_extension[5] = ".sgx";
-    char sgx_filename[FILE_NAME_SIZE];
-    for (int i =0; i < FILENAME_MAX - 5; i++) {
-      sgx_filename[i] = filename[i];
-      if (filename[i] == '\0'){
-        sgx_filename[i] = '.';
-        sgx_filename[i+1] = 's';
-        sgx_filename[i+2] = 'g';
-        sgx_filename[i+3] = 'x';
-        sgx_filename[i+4] = '\0';
-        break;
-      }
-    }
-    memcpy(global_fd_stream_array[fd_stream_idx].file_name , sgx_filename, FILE_NAME_SIZE);
-    // sgx_fopen is compatible with c++ fopen, however, its semantics differs from os syscall open64. it calls open(), close()
-    global_fd_stream_array[fd_stream_idx].file_stream = sgx_fopen(sgx_filename, mode, key); 
-    #else
     memcpy(global_fd_stream_array[fd_stream_idx].file_name , filename, FILE_NAME_SIZE);
-    // sgx_fopen is compatible with c++ fopen, however, its semantics differs from os syscall open64. it calls open(), close()
     global_fd_stream_array[fd_stream_idx].file_stream = sgx_fopen(filename, mode, key); 
-    #endif
 
     int ferror_code = sgx_ferror(global_fd_stream_array[fd_stream_idx].file_stream);
     int errno_code = get_errno();
@@ -225,7 +147,7 @@ int sgx_open(const char *filename, int flags, ...){
             break;
           }
         }
-        mode = "w+"; // fake a directory file
+        mode = "w+"; // fake a directory file, does not fake also works with fflush set ferror to 95. for now fake one.
         memcpy(global_fd_stream_array[fd_stream_idx].file_name , sgx_filename, FILE_NAME_SIZE);
         global_fd_stream_array[fd_stream_idx].file_stream = sgx_fopen(sgx_filename, mode, key); 
         #if defined(SGX_OCALL_DEBUG)
@@ -239,20 +161,9 @@ int sgx_open(const char *filename, int flags, ...){
         #endif
       }
     }
-
-    // if (error_code == ENOENT || ){ // No such file or directory, need to use w+
-    //   #if defined(SGX_OCALL_DEBUG)
-    //   char msg[256];
-    //   snprintf(msg, sizeof(msg), "Warning: Entering ocall_%s with filename %s; error code %d\n", __func__, sgx_filename, error_code);
-    //   ocall_print_string(msg);
-    //   #endif
-    //   mode = "w+"; // w is write-only, can't read.
-    //   global_fd_stream_array[fd_stream_idx].file_stream = sgx_fopen(sgx_filename, mode, key); 
-    // }
     
     global_fd_stream_array[fd_stream_idx].isUsed = 1;
     global_fd_stream_array[fd_stream_idx].fd = fd; // sgx protected_file class actually does not need fd, here fd is used as a index for finding file stream. 
-    // global_fd_stream_array[fd_stream_idx].sgx_fd = sgx_fd; // set the mapping between sgx_fd and fd 
     break;
     // }
   }
@@ -282,10 +193,6 @@ int sgx_close(int fd){
     }
   }
 
-  #ifdef SGX_FD_SHADOW
-  ret = close(fd);
-  #endif
-
   return ret;
 }
 
@@ -298,11 +205,6 @@ ssize_t sgx_read(int fd, void *buf, size_t count){
 
   int fd_stream_idx = 0;
   ssize_t read_bytes = 0;
-
-  // read_bytes = read(fd, buf, count); // shadow read to move file offset
-  // printf("%s: ", "buf from linux read");
-  // print_buf_hex(buf, read_bytes);
-  // printf("\n");
 
   for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
     if (global_fd_stream_array[fd_stream_idx].fd == fd){
@@ -320,8 +222,6 @@ ssize_t sgx_read(int fd, void *buf, size_t count){
     }
   }
 
-  // read_bytes = read(fd, buf, count); // TEST: shadow read to move file offset
-  
   return read_bytes;
 }
 
@@ -337,17 +237,6 @@ off_t sgx_lseek(int fd, off_t offset, int whence) {
   int err;
   for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
     if (global_fd_stream_array[fd_stream_idx].fd == fd){
-    	// // check for fseek out of boundary
-      // sgx_fseek(global_fd_stream_array[fd_stream_idx].file_stream, 0, SEEK_END);
-	    // uint64_t file_size = sgx_ftell(global_fd_stream_array[fd_stream_idx].file_stream);
-      // sgx_fseek(global_fd_stream_array[fd_stream_idx].file_stream, 0, SEEK_SET);
-      // // skip offset cross bound
-      // if (offset > file_size){
-      //   char error_msg[256];
-      //   snprintf(error_msg, sizeof(error_msg), "%s%s%s%ld%s%lu", "Warning: when calling ocall_", __func__, " offset is ", offset, " larger than file size ", file_size);
-      //   ocall_print_error(error_msg); 
-      //   break;
-      // }
       ret = sgx_fseek(global_fd_stream_array[fd_stream_idx].file_stream, offset, whence);
       if (ret != 0) {
         int sgx_errno = sgx_ferror(global_fd_stream_array[fd_stream_idx].file_stream);
@@ -359,18 +248,7 @@ off_t sgx_lseek(int fd, off_t offset, int whence) {
     }
   }
 
-  #ifdef SGX_FD_SHADOW  
-  // lseek64 returns the offset location as measured in bytes from the beginning of the file.
-  off_t new_offset = lseek64(fd, offset, whence); // this will return different offset than sgx_fseek has
-  #if defined(SGX_OCALL_DEBUG)
-  snprintf(msg, sizeof(msg), "Debug: new_offset for shadow file is %ld\n", new_offset);
-  ocall_print_string(msg);
-  #endif
-  
-  return new_offset;
-  #else
   return offset; // pretend to succeed everytime
-  #endif
 } // sgx_fseek
 
 ssize_t sgx_write(int fd, const void *buf, size_t count){
@@ -386,9 +264,6 @@ ssize_t sgx_write(int fd, const void *buf, size_t count){
     if (global_fd_stream_array[fd_stream_idx].fd == fd){
       written_bytes = sgx_fwrite(buf, 1, count, global_fd_stream_array[fd_stream_idx].file_stream);
       #if defined(SGX_OCALL_DEBUG)
-      // printf("%s: ", "buf of sgx_fwrite");
-      // print_buf_hex(buf, written_bytes);
-      // printf("\n")
       char msg[256];
       snprintf(msg, sizeof(msg), "Debug: ocall_%s writing to file %s; count %ld; written %ld\n", __func__, global_fd_stream_array[fd_stream_idx].file_name, count, written_bytes);
       ocall_print_string(msg);
@@ -397,20 +272,7 @@ ssize_t sgx_write(int fd, const void *buf, size_t count){
     }
   }
 
-
-  #ifdef SGX_FD_SHADOW
-  // 0-nize buffer. create shadow file
-  // for (int i=0; i< count; i++){
-  // for (int i=0; i< written_bytes; i++){
-  //   *((unsigned char*)buf + i) = '1';
-  // }
-
-  written_bytes = write(fd, buf, written_bytes);
-  #endif
-
   return written_bytes;
-  // return write(fd, buf, count);
-  // return write(fd, buf, count); // not encrypted for now
 }
 
 int sgx_fsync(int fd) {
@@ -439,10 +301,6 @@ int sgx_fsync(int fd) {
     }
   }
 
-  #ifdef SGX_FD_SHADOW
-  ret = fsync(fd);
-  #endif 
-
   #if defined(SGX_OCALL_DEBUG)
   int errno_code = get_errno();
   printf("%s%d\n", "Debug: Errno is: ", errno_code);
@@ -450,65 +308,6 @@ int sgx_fsync(int fd) {
   return ret;
 
 } // sgx_fflush
-
-
-// replace by sgx_file::u_open64_ocall, maybe sgx_fopen_auto_key
-int open64(const char *filename, int flags, ...){
-  #if defined(SGX_OCALL_DEBUG)
-  char msg[256];
-  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with filename %s; flags %d\n", __func__, filename, flags);
-  ocall_print_string(msg);
-  #endif
-
-  int fd;
-  int err;
-
-  mode_t mode2 = 0; // file permission bitmask, set by passed in mode.
-  // Get the mode from arguments
-	if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE) {
-		va_list valist;
-		va_start(valist, flags); // Init a variable argument list
-		mode2 = va_arg(valist, mode_t); // Retrieve next value with specified type
-		va_end(valist); // End using variable argument list
-	}
-
-  // sgx_status_t status = ocall_open64(&ret, filename, flags, mode2);
-  sgx_status_t status = u_open64_ocall(&fd, &err, filename, flags, mode2);
-  if (status != SGX_SUCCESS) {
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: SGX fails when calling ocall_", __func__);
-    ocall_print_error(error_msg);
-    set_errno(ESGX);
-    return -1;
-  }
-  if (fd == -1) {
-    set_errno(err); // if open fails, set global errno to err
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg), "%s%d%s%d", "Error: open failed for errno ", err, " and fd ", fd);
-    ocall_print_error(error_msg);
-  }
-
-  return fd;
-}
-
-// replace by sgx_file::u_lseek_ocall, maybe sgx_fseek
-off_t lseek64(int fd, off_t offset, int whence){
-  #if defined(SGX_OCALL_DEBUG)
-  char msg[256];
-  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d; offset %ld; whence %d\n", __func__, fd, offset, whence);
-  ocall_print_string(msg);
-  #endif
-  off_t ret;
-  int err;
-  
-  sgx_status_t status = u_lseek64_ocall(&ret, &err, fd, offset, whence);
-  if (status != SGX_SUCCESS) {
-      char error_msg[256];
-      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-      ocall_print_error(error_msg);
-  }
-  return ret;
-}
 
 // since timezone is a "input" here, and it's "untrusted" (we don't make the
 // decision). we can replace it with sgx_time.edl::u_clock_gettime_ocall.
@@ -584,38 +383,7 @@ pid_t getpid(void){
   snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s\n", __func__);
   ocall_print_string(msg);
   #endif
-  // int ret;
-  // sgx_status_t status = u_getpid_ocall(&ret);
-  // if (status != SGX_SUCCESS) {
-  //   char error_msg[256];
-  //   snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-  //   ocall_print_error(error_msg);
-  // }
-  // return ret;
   return 0;
-}
-
-// fsync ask os to flush a file descriptor to disk. should be safe to directly relay.
-int fsync(int fd){ // fsync(fd) shows up 3 times, change to sgx_fsync, replace fdatasync to sgx_fsync also. (# define fdatasync sgx_fsync)
-  #if defined(SGX_OCALL_DEBUG)
-  char msg[256];
-  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d\n", __func__, fd);
-  ocall_print_string(msg);
-  #endif  
-  int ret;
-  int err;
-  sgx_status_t status = u_fsync_ocall(&ret, &err, fd);
-  if (status != SGX_SUCCESS) {
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-    ocall_print_error(error_msg);
-    set_errno(ESGX);
-    return -1;
-  }
-  if (ret == -1) {
-    set_errno(err);
-  }
-  return ret;
 }
 
 // Define SQLITE_OMIT_RANDOMNESS to make sqlite no longer depends on time()
@@ -629,35 +397,6 @@ time_t time(time_t *t){
   ocall_print_error(error_msg);
   
   return ret;
-}
-
-// replace with u_close_ocall, maybe sgx_fclose
-int close(int fd){
-  #if defined(SGX_OCALL_DEBUG)
-  char msg[256];
-  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d\n", __func__, fd);
-  ocall_print_string(msg);
-  #endif
-  int ret;
-  int err;
-
-  // this is different from close(int fd), and normally fopen should use close() but not fclose.
-  // ret = sgx_fclose(global_file_stream);
-  sgx_status_t status = u_close_ocall(&ret, &err, fd);
-  if (status != SGX_SUCCESS) {
-    char error_msg[256];
-    snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-    ocall_print_error(error_msg);
-    set_errno(ESGX);
-    return -1;
-  }
-  if (ret == -1) {
-    set_errno(err);
-  }
-  return ret;
-
-  // err = get_errno();
-  // return ret;
 }
 
 // needs further discussion on access
@@ -709,27 +448,7 @@ int sgx_lstat( const char* path, struct stat *buf ) {
   int ret;
   int err;
 
-  #ifdef SGX_FD_SHADOW
-  char sgx_path[FILE_NAME_SIZE];
-  for (int i =0; i < FILENAME_MAX - 5; i++) {
-    sgx_path[i] = path[i];
-    if (path[i] == '\0'){
-      sgx_path[i] = '.';
-      sgx_path[i+1] = 's';
-      sgx_path[i+2] = 'g';
-      sgx_path[i+3] = 'x';
-      sgx_path[i+4] = '\0';
-      break;
-    }
-  }
-  sgx_status_t status = u_lstat_ocall(&ret, &err, sgx_path, buf);
-  #if defined(SGX_OCALL_DEBUG)
-  printf("%s%s\n", "Debug: sgx_path for u_lstat_ocall is: ", sgx_path);
-  #endif
-  #else
   sgx_status_t status = u_lstat_ocall(&ret, &err, path, buf);
-  #endif
-
 
   if (status != SGX_SUCCESS) {
     char error_msg[256];
@@ -760,27 +479,7 @@ int sgx_stat(const char *path, struct stat *buf){
   int ret;
   int err;
 
-  #ifdef SGX_FD_SHADOW
-  char sgx_path[FILE_NAME_SIZE];
-  for (int i =0; i < FILENAME_MAX - 5; i++) {
-    sgx_path[i] = path[i];
-    if (path[i] == '\0'){
-      sgx_path[i] = '.';
-      sgx_path[i+1] = 's';
-      sgx_path[i+2] = 'g';
-      sgx_path[i+3] = 'x';
-      sgx_path[i+4] = '\0';
-      break;
-    }
-  }
-
-  sgx_status_t status = u_stat_ocall(&ret, &err, sgx_path, buf);
-  #if defined(SGX_OCALL_DEBUG)
-  printf("%s%s\n", "Debug: sgx_path for u_stat_ocall is: ", sgx_path);
-  #endif
-  #else
   sgx_status_t status = u_stat_ocall(&ret, &err, path, buf);
-  #endif
 
   if (status != SGX_SUCCESS) {
     char error_msg[256];
@@ -812,27 +511,6 @@ int sgx_fstat(int fd, struct stat *buf){ // used in 5 locations, seems fine to l
   int ret;
   int err;
 
-  // ret = 0;
-  // err = 0;
-  // buf->st_dev = 73; // The st_dev field describes the device on which this file resides.
-  // buf->ino = 42079737; // /* inode number */
-  // buf->st_mode = 33188; // This field contains the file type and mode.
-  // buf->st_nlink = 1; /* number of hard links */
-  // buf->st_uid = 0;
-  // buf->st_gid = 0;
-  // buf->st_rdev = 0;
-  // buf->st_size = 0; 
-  // buf->st_uid = 0;
-  // buf->st_blksize = 4096; /* blocksize for file system I/O */
-  // buf->st_blocks = 0; /* number of 512B blocks allocated */
-  // buf->st_atim = 1607635982; /* time of last access */
-  // buf->st_mtim = 1607635982; /* time of last modification */
-  // buf->st_ctim = 1607635982; /* time of last status change */
-
-  // need stat about sgx_file not the shadow file. e.g. st_size, st_blocks
-  // fstat use fd, stat use pathname, use stat to replace this
-  // sgx_status_t status = u_fstat_ocall(&ret, &err, fd, buf);
-
   int fd_stream_idx = 0;
   for (; fd_stream_idx < MAX_FD_STREAM_ARRAY_SIZE; fd_stream_idx++){
     if (global_fd_stream_array[fd_stream_idx].fd == fd){
@@ -852,9 +530,7 @@ int sgx_fstat(int fd, struct stat *buf){ // used in 5 locations, seems fine to l
     }
   }
   
-  // if (ret == -1) {
   set_errno(err);
-  // }
 
   #if defined(SGX_OCALL_DEBUG)
   snprintf(msg, sizeof(msg), "Debug: err is %d and ret is %d\n", err, ret);
@@ -898,67 +574,6 @@ int fcntl(int fd, int cmd, ... /* arg */ ){
   // fcntl is only used for locking .db file. cmd == 6 for SETLK. we return 0 to notice that record lock has been set
   // but it is actually not. we assume no other process will read this .db file.
   return 0;
-
-  // Read one argument
-  // va_list valist;
-	// va_start(valist, cmd);
-	// void* arg = va_arg(valist, void*);
-	// va_end(valist);
-
-  // sgx_status_t status;
-  // int ret;
-  // int err;
-  // status = u_fcntl_arg1_ptr_ocall(&ret, &err, fd, cmd, arg); 
-  // if (status != SGX_SUCCESS) {
-  //   char error_msg[256];
-  //   snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-  //   ocall_print_error(error_msg);
-  //   set_errno(ESGX);
-  //   return -1;
-  // }
-  // if (ret == -1) {
-  //   char error_msg[256];
-  //   snprintf(error_msg, sizeof(error_msg), "%s%s return -1 with errno %d during cmd %d", "Debug: when calling ocall_", __func__, err, cmd);
-  //   ocall_print_error(error_msg); 
-  //   set_errno(err);
-  // }
-  // return ret;
-}
-
-// u_read_ocall, maybe sgx_fread
-ssize_t read(int fd, void *buf, size_t count){
-  #if defined(SGX_OCALL_DEBUG)
-  char msg[256];
-  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d; count %lu\n", __func__, fd, count);
-  ocall_print_string(msg);
-  #endif 
-  long unsigned int ret;
-  int err;
-  sgx_status_t status = u_read_ocall(&ret, &err, fd, buf, count);
-  if (status != SGX_SUCCESS) {
-      char error_msg[256];
-      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-      ocall_print_error(error_msg);
-  }
-  return (ssize_t)ret;
-}
-
-// u_write_ocall, maybe sgx_fwrite
-ssize_t write(int fd, const void *buf, size_t count){
-  #if defined(SGX_OCALL_DEBUG)
-  char msg[256];
-  snprintf(msg, sizeof(msg), "Debug: Entering ocall_%s with fd %d; count %lu\n", __func__, fd, count);
-  ocall_print_string(msg);
-  #endif 
-  long unsigned int ret;
-  int err;
-  sgx_status_t status = u_write_ocall(&ret, &err, fd, buf, count);
-  if (status != SGX_SUCCESS) {
-      char error_msg[256];
-      snprintf(error_msg, sizeof(error_msg), "%s%s", "Error: when calling ocall_", __func__);
-      ocall_print_error(error_msg);
-  }
-  return (ssize_t)ret;
 }
 
 // u_fchmod_ocall
@@ -989,25 +604,7 @@ int unlink(const char *pathname){
   int ret;
   int err;
 
-  #ifdef SGX_FD_SHADOW
-  // sgx file
-  char sgx_pathname[FILE_NAME_SIZE];
-  for (int i =0; i < FILENAME_MAX - 5; i++) {
-    sgx_pathname[i] = pathname[i];
-    if (pathname[i] == '\0'){
-      sgx_pathname[i] = '.';
-      sgx_pathname[i+1] = 's';
-      sgx_pathname[i+2] = 'g';
-      sgx_pathname[i+3] = 'x';
-      sgx_pathname[i+4] = '\0';
-      break;
-    }
-  }
-  status = u_unlink_ocall(&ret, &err, sgx_pathname);
-  #else
-  // shadow file
   sgx_status_t status = u_unlink_ocall(&ret, &err, pathname);
-  #endif
 
   if (status != SGX_SUCCESS) {
       char error_msg[256];

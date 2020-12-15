@@ -10,3 +10,6 @@ bin/
 lib/
 
 .DS_Store
+
+# bogus file to fake bin directory
+bin.sgx
